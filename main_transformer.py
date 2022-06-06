@@ -8,18 +8,28 @@ import time
 
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
+from packages.transformer.utils import conv_bool_mask_to_neg_infty
 
 
 class Batch:
     "Object for holding a batch of data with mask during training."
     def __init__(self, src, trg=None, pad=0):
         self.src = src
-        self.src_mask = (src != pad).unsqueeze(-2)
+        # all pairs attention below.
+        self.src_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((src.shape[1], trg.shape[1]), False, dtype=bool)))
+
         if trg is not None:
             self.trg = trg[:, :-1]
             self.trg_y = trg[:, 1:]
-            self.trg_mask = \
-                self.make_std_mask(self.trg, pad)
+            # self.trg_mask = \
+            #     self.make_std_mask(self.trg, pad)
+            # NOTE: this could be wrong.
+            self.trg_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(
+                    np.tril(np.ones((trg.shape[1] - 1 , trg.shape[1] -1))) == 0
+                ))
+            # self.trg_mask = torch.from_numpy(
+            #         np.tril(np.ones((9 , 9))) == 0
+            #     )
             self.ntokens = (self.trg_y != pad).data.sum()
     
     @staticmethod

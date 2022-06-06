@@ -6,6 +6,7 @@ import copy
 import torch.nn.functional as F
 
 from .attention import MultiHeadedAttention
+from .utils import conv_bool_mask_to_neg_infty
 
 def clones(module, N):
     "Produce N identical layers."
@@ -30,9 +31,13 @@ class EncoderDecoder(nn.Module):
                             tgt, tgt_mask)
     
     def encode(self, src, src_mask):
+        # print(f"Looking at src mask: {src_mask}")
+        # print(f"Looking at src mask shape: {src_mask.shape}")
         return self.encoder(self.src_embed(src), src_mask)
     
     def decode(self, memory, src_mask, tgt, tgt_mask):
+        # print(f"Looking at tgt mask: {tgt_mask}")
+        # print(f"Looking at tgt mask shape: {tgt_mask.shape}")
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 class Generator(nn.Module):
@@ -43,7 +48,6 @@ class Generator(nn.Module):
 
     def forward(self, x):
         return nn.LogSoftmax(self.proj(x), dim=-1)
-
 
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
@@ -83,8 +87,8 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
-        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask))
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)[0]) # unpack since multihead attention returns tuple
+        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
         return self.sublayer[1](x, self.feed_forward)
 
 class Decoder(nn.Module):
@@ -112,10 +116,11 @@ class DecoderLayer(nn.Module):
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
         m = memory
-        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask))
-        # x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_mask))
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
-        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  src_mask))
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask)[0])
+        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool)))
+        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_tgt_attention)[0])
+        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
+        # x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  src_mask))
         return self.sublayer[2](x, self.feed_forward)
 
 def subsequent_mask(size):
@@ -148,8 +153,8 @@ def make_model(src_vocab, tgt_vocab, N=6,
                d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
-    # attn = nn.MultiheadAttention(d_model, h)
-    attn = MultiHeadedAttention(h, d_model)
+    attn = nn.MultiheadAttention(d_model, h, batch_first=True)
+    # attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
     model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
