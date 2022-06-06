@@ -4,6 +4,7 @@ from torch import nn
 import numpy as np 
 import copy
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 from .attention import MultiHeadedAttention
 from .utils import conv_bool_mask_to_neg_infty
@@ -62,6 +63,27 @@ class Encoder(nn.Module):
             x = layer(x, mask)
         return self.norm(x)
 
+class PositionalEncoding(nn.Module):
+    "Implement the PE function."
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) *
+                             -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+        
+    def forward(self, x):
+        x = x + Variable(self.pe[:, :x.size(1)], 
+                         requires_grad=False)
+        return self.dropout(x)
+
 class SublayerConnection(nn.Module):
     """
     A residual connection followed by a layer norm.
@@ -119,8 +141,6 @@ class DecoderLayer(nn.Module):
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask)[0])
         src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool)))
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_tgt_attention)[0])
-        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
-        # x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  src_mask))
         return self.sublayer[2](x, self.feed_forward)
 
 def subsequent_mask(size):
@@ -156,12 +176,15 @@ def make_model(src_vocab, tgt_vocab, N=6,
     attn = nn.MultiheadAttention(d_model, h, batch_first=True)
     # attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+    position = PositionalEncoding(d_model, dropout)
+
+
     model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(attn), 
                              c(ff), dropout), N),
-        Embeddings(d_model, src_vocab),
-        Embeddings(d_model, tgt_vocab),
+        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
+        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
         Generator(d_model, tgt_vocab))
     
     # This was important from their code. 

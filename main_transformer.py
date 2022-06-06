@@ -21,15 +21,9 @@ class Batch:
         if trg is not None:
             self.trg = trg[:, :-1]
             self.trg_y = trg[:, 1:]
-            # self.trg_mask = \
-            #     self.make_std_mask(self.trg, pad)
-            # NOTE: this could be wrong.
             self.trg_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(
                     np.tril(np.ones((trg.shape[1] - 1 , trg.shape[1] -1))) == 0
                 ))
-            # self.trg_mask = torch.from_numpy(
-            #         np.tril(np.ones((9 , 9))) == 0
-            #     )
             self.ntokens = (self.trg_y != pad).data.sum()
     
     @staticmethod
@@ -94,7 +88,7 @@ def main():
     V = 11
     criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
     model = make_model(V, V, N=2)
-    model_opt = NoamOpt(model.src_embed.d_model, 1, 400,
+    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     for _ in range(10):
