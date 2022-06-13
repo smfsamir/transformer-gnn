@@ -139,7 +139,7 @@ class DecoderLayer(nn.Module):
         "Follow Figure 1 (right) for connections."
         m = memory
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask)[0])
-        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool)))
+        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool))).cuda()
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_tgt_attention)[0])
         return self.sublayer[2](x, self.feed_forward)
 

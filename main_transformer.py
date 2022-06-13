@@ -16,14 +16,14 @@ class Batch:
     def __init__(self, src, trg=None, pad=0):
         self.src = src
         # all pairs attention below.
-        self.src_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((src.shape[1], trg.shape[1]), False, dtype=bool)))
+        self.src_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((src.shape[1], trg.shape[1]), False, dtype=bool))).cuda()
 
         if trg is not None:
             self.trg = trg[:, :-1]
             self.trg_y = trg[:, 1:]
             self.trg_mask = conv_bool_mask_to_neg_infty(torch.from_numpy(
                     np.tril(np.ones((trg.shape[1] - 1 , trg.shape[1] -1))) == 0
-                ))
+                )).cuda()
             self.ntokens = (self.trg_y != pad).data.sum()
     
     @staticmethod
@@ -73,7 +73,7 @@ def copy_task_data_gen(V: int, batch: int, nbatches: int):
         Generator[Batch, None, None]: Yields a batch of data at a time.
     """
     for _ in range(nbatches):
-        data = torch.from_numpy(np.random.randint(1, V, size=(batch, 10)))
+        data = torch.from_numpy(np.random.randint(1, V, size=(batch, 10))).cuda()
         data[:, 0] = 1 # TODO: why? we could probably get rid of this...
         src = data
         tgt = data
@@ -86,8 +86,8 @@ def get_std_opt(model):
 def main():
     # Train the simple copy task.
     V = 11
-    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
-    model = make_model(V, V, N=2)
+    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0).cuda()
+    model = make_model(V, V, N=2).cuda()
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
