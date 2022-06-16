@@ -22,7 +22,7 @@ class TransformerGraphBundleInput:
         self.trg = trg.cuda() 
         self.train_mask = train_mask
         self.trg_mask = torch.from_numpy(np.full((trg.shape[1], 1), False, dtype=bool)).cuda() # TODO: we shouldn't be using this anywhere. 
-        self.ntokens = 1 # since it's a classification problem
+        self.ntokens = train_mask.sum() # since it's a classification problem
 
 def cora_data_gen(cora_features: torch.Tensor, cora_labels: torch.Tensor, cora_train_mask: torch.Tensor,
                     cora_adj_mat: np.array) -> TransformerGraphBundleInput:

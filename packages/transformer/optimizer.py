@@ -59,7 +59,8 @@ class LabelSmoothing(nn.Module):
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
-        print(f"true_dist shape: {self.true_dist.shape}")
+        # print(f"input shape in criterion: {x.shape}")
+        # print(f"target shape in criterion: {self.true_dist.shape}")
         return self.criterion(x, torch.autograd.Variable(true_dist, requires_grad=False))
 
 class SimpleLossCompute:
@@ -71,12 +72,12 @@ class SimpleLossCompute:
         
     def __call__(self, x, y, norm):
         x = self.generator(x)
-        print(f"Shape after running through generator: {x.shape}")
-        print(f"The target shape: {y.shape}")
+        # print(f"input shape before criterion: {x.shape}")
+        # print(f"target shape before criterion: {y.shape}")
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)), 
-                              y.contiguous().view(-1)) / norm # TODO: need to think about this expression clearly next.
-        loss.backward()
+                              y.contiguous().view(-1)) / norm # THe norm is currently set to 1.
         if self.opt is not None:
+            loss.backward()
             self.opt.step()
             self.opt.optimizer.zero_grad()
         # return loss.data[0] * norm

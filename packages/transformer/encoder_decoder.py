@@ -43,9 +43,9 @@ class EncoderDecoder(nn.Module):
         """
         # print(f"Looking at src mask: {src_mask}")
         # print(f"Looking at src mask shape: {src_mask.shape}")
-        print(f"Input source shape: {src.shape}")
+        # print(f"Input source shape: {src.shape}")
         node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x V x V x D
-        print(f"Node embeds shape: {node_embeds.shape}")
+        # print(f"Node embeds shape: {node_embeds.shape}")
         return node_embeds[:, train_mask, :] # this should work. I hope.
     # def decode(self, memory, src_mask, tgt, tgt_mask):
     #     # print(f"Looking at tgt mask: {tgt_mask}")
