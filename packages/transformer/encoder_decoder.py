@@ -1,4 +1,5 @@
 import math
+from platform import node
 from typing import Optional
 import torch
 from torch import nn
@@ -27,20 +28,29 @@ class EncoderDecoder(nn.Module):
         self.tgt_embed = tgt_embed
         self.generator = generator
         
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        "Take in and process masked src and target sequences."
-        return self.decode(self.encode(src, src_mask), src_mask,
-                            tgt, tgt_mask)
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor, train_mask: Optional[torch.Tensor] = None):
+        return self.encode(src, src_mask, train_mask)
     
-    def encode(self, src, src_mask):
+    def encode(self, src: torch.Tensor, src_mask: torch.Tensor, train_mask: Optional[torch.Tensor] = None):
+        """
+        Args:
+            src (torch.Tensor): features of each node in the graph. B x V x input_D
+            src_mask (torch.Tensor): Adjacency matrix for the graph. V x V. 
+            train_mask (Optional[torch.Tensor], optional): Mask representing which nodes we're making predictions for. V
+
+        Returns:
+            torch.Tensor: N x model_D, where N == number of unmasked elements in {train_mask}.
+        """
         # print(f"Looking at src mask: {src_mask}")
         # print(f"Looking at src mask shape: {src_mask.shape}")
-        return self.encoder(self.src_embed(src), src_mask)
-    
-    def decode(self, memory, src_mask, tgt, tgt_mask):
-        # print(f"Looking at tgt mask: {tgt_mask}")
-        # print(f"Looking at tgt mask shape: {tgt_mask.shape}")
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
+        print(f"Input source shape: {src.shape}")
+        node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x V x V x D
+        print(f"Node embeds shape: {node_embeds.shape}")
+        return node_embeds[:, train_mask, :] # this should work. I hope.
+    # def decode(self, memory, src_mask, tgt, tgt_mask):
+    #     # print(f"Looking at tgt mask: {tgt_mask}")
+    #     # print(f"Looking at tgt mask shape: {tgt_mask.shape}")
+    #     return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 class Generator(nn.Module):
     "Define standard linear + softmax generation step."
@@ -140,7 +150,9 @@ class DecoderLayer(nn.Module):
         "Follow Figure 1 (right) for connections."
         m = memory
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask)[0])
-        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool))).cuda()
+
+        # what should this be? should we be attending to every src node? No.  
+        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool))).cuda() # TODO: what should happen here?
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_tgt_attention)[0])
         return self.sublayer[2](x, self.feed_forward)
 
@@ -163,7 +175,7 @@ class PositionwiseFeedForward(nn.Module):
     
 class NodeEmbedding(nn.Module):
     def __init__(self, d_model, d_input):
-        super(Embeddings, self).__init__()
+        super(NodeEmbedding, self).__init__()
         self.input_to_h = nn.Linear(d_input, d_model)
         self.d_model = d_model
 
@@ -190,9 +202,9 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
     model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(attn), 
-                             c(ff), dropout), N),
+                             c(ff), dropout), N), # TODO: this should not be used anymore... 
         nn.Sequential(NodeEmbedding(d_model, d_input)),
-        nn.Sequential(Embeddings(d_model, 8)),
+        nn.Sequential(Embeddings(d_model, tgt_vocab)),
         Generator(d_model, tgt_vocab))
     
     # This was important from their code. 

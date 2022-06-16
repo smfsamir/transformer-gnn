@@ -15,9 +15,11 @@ def run_epoch(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder, 
     start = time.time()
 
     out = model.forward(graph_bundle.src, graph_bundle.trg, 
-                        graph_bundle.src_mask, graph_bundle.trg_mask)
+                        graph_bundle.src_mask, graph_bundle.trg_mask, 
+                        graph_bundle.train_mask) # shape: B x D x N, where N is number of nodes we're making predictions for.
+    # graph_bundle.trg is (B x 1 x N). Not sure if correct. The 1 stands for the seq_len.
     total_loss = loss_compute(out, graph_bundle.trg, graph_bundle.ntokens)
-    elapsed = time.time()  -start
+    elapsed = time.time() - start
     print(f"Train loss on epoch: {total_loss}; time taken: {elapsed}")
     return total_loss 
 
@@ -27,7 +29,8 @@ def main():
     labels = torch.LongTensor(data.labels)
     mask = torch.BoolTensor(data.train_mask)
     graph = dgl.from_networkx(data.graph) 
-    adj = graph.adj(scipy_fmt='coo').to_array()
+    adj = graph.adj(scipy_fmt='coo').toarray()
+    
     graph = None
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
@@ -37,7 +40,7 @@ def main():
     for _ in range(10):
         model.train()
         run_epoch(cora_data_gen(features, labels, mask, adj), model, 
-        SimpleLossCompute(model.generator, criterion, model_opt))
+            SimpleLossCompute(model.generator, criterion, model_opt))
 
 if __name__ == "__main__":
     main()

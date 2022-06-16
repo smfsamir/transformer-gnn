@@ -33,8 +33,14 @@ def get_std_opt(model):
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 class LabelSmoothing(nn.Module):
-    "Implement label smoothing."
-    def __init__(self, size, padding_idx, smoothing=0.0):
+    def __init__(self, size: int, padding_idx: int, smoothing=0.0):
+        """Initialize Label Smoothing criterion
+
+        Args:
+            size (int): The number of labels.  # NOTE: confident about this but not totally sure.
+            padding_idx (int): _description_
+            smoothing (float, optional): _description_. Defaults to 0.0.
+        """
         super(LabelSmoothing, self).__init__()
         self.criterion = nn.KLDivLoss(size_average=False)
         self.padding_idx = padding_idx
@@ -53,6 +59,7 @@ class LabelSmoothing(nn.Module):
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
+        print(f"true_dist shape: {self.true_dist.shape}")
         return self.criterion(x, torch.autograd.Variable(true_dist, requires_grad=False))
 
 class SimpleLossCompute:
@@ -64,8 +71,10 @@ class SimpleLossCompute:
         
     def __call__(self, x, y, norm):
         x = self.generator(x)
+        print(f"Shape after running through generator: {x.shape}")
+        print(f"The target shape: {y.shape}")
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)), 
-                              y.contiguous().view(-1)) / norm
+                              y.contiguous().view(-1)) / norm # TODO: need to think about this expression clearly next.
         loss.backward()
         if self.opt is not None:
             self.opt.step()
