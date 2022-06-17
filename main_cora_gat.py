@@ -3,6 +3,7 @@ import dgl
 from dgl.data import citation_graph as citegrh
 import torch
 from main_transformer import TransformerGraphBundleInput
+from torch.utils.tensorboard import SummaryWriter
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
 from packages.transformer.utils import conv_bool_mask_to_neg_infty
@@ -20,7 +21,7 @@ def run_epoch(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder, 
     elapsed = time.time() - start
     ntokens = graph_bundle.ntokens 
     print(f"Train loss on epoch: {total_loss / ntokens}; time taken: {elapsed}")
-    return total_loss 
+    return total_loss / ntokens
 
 def run_eval_epoch(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder, \
                     loss_compute: SimpleLossCompute):
@@ -30,7 +31,7 @@ def run_eval_epoch(graph_bundle: TransformerGraphBundleInput, model: EncoderDeco
     total_loss = loss_compute(out, graph_bundle.trg, graph_bundle.ntokens)
     ntokens = graph_bundle.ntokens 
     print(f"Validation loss on epoch: {total_loss / ntokens}")
-    return total_loss 
+    return total_loss / ntokens 
 
 def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder):
     out = model.forward(graph_bundle.src, graph_bundle.trg, 
@@ -44,9 +45,15 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     # print(f"Test accuracy labels shape: {test_labels}")
     total = len(test_labels)
     correct = (out == test_labels).sum()
+    test_accuracy = correct/total
     print(f"Test accuracy: {correct/total}")
+    return test_accuracy
+
 
 def main():
+    tb_sw = SummaryWriter()
+
+
     data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
@@ -63,22 +70,21 @@ def main():
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
     nepochs = 100
-    for _ in range(nepochs):
+    for nepoch in range(nepochs):
         model.train()
-        run_epoch(cora_data_gen(features, labels, train_mask, adj), model, 
+        epoch_loss = run_epoch(cora_data_gen(features, labels, train_mask, adj), model, 
             SimpleLossCompute(model.generator, criterion, model_opt))
+        tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         
-        # model.eval()
-        # with torch.no_grad():
-        #     run_eval_epoch(cora_data_gen(features, labels, val_mask, adj), model, 
-        #         SimpleLossCompute(model.generator, criterion, None))
+        model.eval()
+        with torch.no_grad():
+            validation_loss = run_eval_epoch(cora_data_gen(features, labels, val_mask, adj), model, 
+                SimpleLossCompute(model.generator, criterion, None))
+            tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
     model.eval()
     with torch.no_grad():
-        eval_accuracy(cora_data_gen(features, labels, test_mask, adj), model)
-
-    
-    
-
+        test_acc = eval_accuracy(cora_data_gen(features, labels, test_mask, adj), model)
+        # tb_sw.add_scalar('Accuracy/test', test_acc)
 
 if __name__ == "__main__":
     main()
