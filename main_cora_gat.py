@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 import time
 import dgl
 from dgl.data import citation_graph as citegrh
@@ -7,7 +8,9 @@ from torch.utils.tensorboard import SummaryWriter
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
 from packages.transformer.utils import conv_bool_mask_to_neg_infty
-from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen
+from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen, load_cora_data
+from packages.utils.checkpointing import load_model, checkpoint_model
+from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
 def run_epoch(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder, loss_compute: SimpleLossCompute):
     "Standard Training and Logging Function"
@@ -49,10 +52,8 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(f"Test accuracy: {correct/total}")
     return test_accuracy
 
-
-def main():
+def train_model():
     tb_sw = SummaryWriter()
-
 
     data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
@@ -66,10 +67,11 @@ def main():
     graph = None
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=1).cuda() # +1 for the padding index, though I don't think it's necessary.
+    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
-    nepochs = 100
+    nepochs = 200
+    best_loss = float("inf") 
     for nepoch in range(nepochs):
         model.train()
         epoch_loss = run_epoch(cora_data_gen(features, labels, train_mask, adj), model, 
@@ -81,10 +83,33 @@ def main():
             validation_loss = run_eval_epoch(cora_data_gen(features, labels, val_mask, adj), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
+
+            if validation_loss < best_loss:
+                checkpoint_model(model)
+                best_loss = validation_loss
+            
+    load_model(model) # mutation
     model.eval()
     with torch.no_grad():
         test_acc = eval_accuracy(cora_data_gen(features, labels, test_mask, adj), model)
         # tb_sw.add_scalar('Accuracy/test', test_acc)
 
+def visualize_jacobian():
+    features, labels, train_mask, _, _, adj = load_cora_data()
+    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
+    load_model(model) # mutation
+    jacobianized_model = JacobianGAT(model, 0, 1, cora_data_gen(features, labels, train_mask, adj))
+    visualize_influence(jacobianized_model, features[0])
+
+def main(args):
+    if args.train_model:
+        train_model()
+    elif args.visualize_jacobian:
+        visualize_jacobian()
+
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("--train_model", action="store_true")
+    parser.add_argument("--visualize_jacobian", action="store_true")
+
+    main(parser.parse_args())

@@ -1,3 +1,5 @@
+import dgl
+from dgl.data import citation_graph as citegrh
 import sys
 import numpy as np
 import torch
@@ -22,7 +24,7 @@ class TransformerGraphBundleInput:
         self.trg = trg.cuda() 
         self.train_mask = train_mask
         self.trg_mask = torch.from_numpy(np.full((trg.shape[1], 1), False, dtype=bool)).cuda() # TODO: we shouldn't be using this anywhere. 
-        self.ntokens = train_mask.sum() # since it's a classification problem
+        self.ntokens = train_mask.sum() 
 
 def cora_data_gen(cora_features: torch.Tensor, cora_labels: torch.Tensor, cora_train_mask: torch.Tensor,
                     cora_adj_mat: np.array) -> TransformerGraphBundleInput:
@@ -38,3 +40,15 @@ def cora_data_gen(cora_features: torch.Tensor, cora_labels: torch.Tensor, cora_t
     cora_train_labels = cora_labels[cora_train_mask]
     cora_train_labels = cora_train_labels.view(1, 1, cora_train_labels.shape[0]) # TODO: This could be wrong. Currently, I'm thinking it's B x seq_len x number of items.
     return TransformerGraphBundleInput(cora_features.unsqueeze(0), cora_train_labels, cora_adj_mat, cora_train_mask)
+
+def load_cora_data():
+    data = citegrh.load_cora()
+    features = torch.FloatTensor(data.features)
+    labels = torch.LongTensor(data.labels)
+    train_mask = torch.BoolTensor(data.train_mask)
+    val_mask = torch.BoolTensor(data.val_mask)
+    test_mask = torch.BoolTensor(data.test_mask)
+    graph = dgl.from_networkx(data.graph) 
+    adj = graph.adj(scipy_fmt='coo').toarray()
+    graph = None
+    return features, labels, train_mask, val_mask, test_mask, adj
