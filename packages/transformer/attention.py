@@ -23,7 +23,6 @@ class MultiHeadedAttention(nn.Module):
     def forward(self, query, key, value, mask=None):
         "Implements Figure 2"
         if mask is not None:
-            # Same mask applied to all h heads.
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
         
@@ -41,15 +40,15 @@ class MultiHeadedAttention(nn.Module):
              .view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
+# TODO: note that when we implement neighbourhood sampling, we would still have a good amount of sparsity. It would
 def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) \
-             / math.sqrt(d_k)
+             / math.sqrt(d_k) # we don't need to compute all of these, so this is also probably slow.
     if mask is not None:
-        scores = scores.masked_fill(mask == 0, -1e9)
+        scores = scores.masked_fill(mask == 0, -1e9) # this is probably really, really slow. Also, why is it super tiny, rather than 0? What happens if we make it exactly zero? Probably doesn't matter.
     p_attn = F.softmax(scores, dim = -1)
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
-    
