@@ -37,12 +37,13 @@ class LabelSmoothing(nn.Module):
         """Initialize Label Smoothing criterion
 
         Args:
-            size (int): The number of labels.  # NOTE: confident about this but not totally sure.
+            size (int): The number of labels.  
             padding_idx (int): _description_
             smoothing (float, optional): _description_. Defaults to 0.0.
         """
         super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(size_average=False)
+        # self.criterion = nn.KLDivLoss(reduction='batchmean') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
+        self.criterion = nn.KLDivLoss(reduction='sum') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
@@ -71,11 +72,20 @@ class SimpleLossCompute:
         self.opt = opt
         
     def __call__(self, x, y, norm):
-        x = self.generator(x)
-        # print(f"input shape before criterion: {x.shape}")
-        # print(f"target shape before criterion: {y.shape}")
+        """_summary_
+
+        Args:
+            x (torch.Tensor): B x B_out x D_model.
+            y (_type_): B x B
+            norm (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # TODO: I'm assuming this will work for now. If anything goes wrong, need to check the criterion implementation to confirm later. 
+        x = self.generator(x) # B x B_out x num_classes
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)), 
-                              y.contiguous().view(-1)) / norm # THe norm is currently set to 1.
+                              y.contiguous().view(-1)) / norm 
         if self.opt is not None:
             loss.backward()
             self.opt.step()

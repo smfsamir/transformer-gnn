@@ -20,39 +20,29 @@ class EncoderDecoder(nn.Module):
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
     """
-    def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
+    def __init__(self, encoder, src_embed, tgt_embed, generator):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
-        self.decoder = decoder
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
         self.generator = generator
         
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor, train_mask: Optional[torch.Tensor] = None):
-        return self.encode(src, src_mask, train_mask)
-    
-    def encode(self, src: torch.Tensor, src_mask: torch.Tensor, train_mask: Optional[torch.Tensor] = None):
+    def forward(self, src: torch.Tensor, src_mask: torch.Tensor, train_inds: Optional[torch.Tensor] = None):
         """
         Args:
-            src (torch.Tensor): features of each node in the graph. B x V x input_D
-            src_mask (torch.Tensor): Adjacency matrix for the graph. V x V. 
-            train_mask (Optional[torch.Tensor], optional): Mask representing which nodes we're making predictions for. V
+            src (torch.Tensor): Features of each node in the graph. B x B_in x feat_D.
+            src_mask (torch.Tensor): Adjacency matrices for the graph submatrices: B x L x B_in x B_in. NOTE: they have to be passed in padded already. So B_in really means max B_in
+            train_inds (Optional[torch.Tensor], optional): Indices for the nodes that we're making predictions for: B x B_out.
 
         Returns:
-            torch.Tensor: N x model_D, where N == number of unmasked elements in {train_mask}.
+            torch.Tensor: B x B_out x model_D. 
         """
-        # print(f"Looking at src mask: {src_mask}")
-        # print(f"Looking at src mask shape: {src_mask.shape}")
-        # print(f"Input source shape: {src.shape}")
-        node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x V x V x D
-        # print(f"Node embeds shape: {node_embeds.shape}")
-        return node_embeds[:, train_mask, :] # this should work. I hope.
-    # def decode(self, memory, src_mask, tgt, tgt_mask):
-    #     # print(f"Looking at tgt mask: {tgt_mask}")
-    #     # print(f"Looking at tgt mask shape: {tgt_mask.shape}")
-    #     return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
+        node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x B_in x D. But I really need to check this.
+        batch_size = src.size(0)
+        return node_embeds[torch.arange(batch_size), train_inds] # should have shape B x B_out x D.
 
 class Generator(nn.Module):
+
     "Define standard linear + softmax generation step."
     def __init__(self, d_model, vocab):
         super(Generator, self).__init__()
@@ -65,35 +55,17 @@ class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
     def __init__(self, layer, N):
         super(Encoder, self).__init__()
+        self.num_layers = N
         self.layers = clones(layer, N)
         self.norm = nn.LayerNorm(layer.size)
         
-    def forward(self, x, mask):
+    def forward(self, x, masks):
         "Pass the input (and mask) through each layer in turn."
+        layer_i = 0
         for layer in self.layers:
-            x = layer(x, mask)
+            x = layer(x, masks[:, layer_i, :, :])
+            layer_i += 1
         return self.norm(x)
-
-class PositionalEncoding(nn.Module):
-    "Implement the PE function."
-    def __init__(self, d_model, dropout, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        
-        # Compute the positional encodings once in log space.
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) *
-                             -(math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-        
-    def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)], 
-                         requires_grad=False)
-        return self.dropout(x)
 
 class SublayerConnection(nn.Module):
     """
@@ -120,47 +92,8 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)[0]) # unpack since multihead attention returns tuple
-        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask=mask)) 
         return self.sublayer[1](x, self.feed_forward)
-
-class Decoder(nn.Module):
-    "Generic N layer decoder with masking."
-    def __init__(self, layer, N):
-        super(Decoder, self).__init__()
-        self.layers = clones(layer, N)
-        self.norm = nn.LayerNorm(layer.size)
-        
-    def forward(self, x, memory, src_mask, tgt_mask):
-        for layer in self.layers:
-            x = layer(x, memory, src_mask, tgt_mask)
-        return self.norm(x)
-
-class DecoderLayer(nn.Module):
-    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
-    def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
-        super(DecoderLayer, self).__init__()
-        self.size = size
-        self.self_attn = self_attn
-        self.src_attn = src_attn
-        self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 3)
- 
-    def forward(self, x, memory, src_mask, tgt_mask):
-        "Follow Figure 1 (right) for connections."
-        m = memory
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=tgt_mask)[0])
-
-        # what should this be? should we be attending to every src node? No.  
-        src_tgt_attention = conv_bool_mask_to_neg_infty(torch.from_numpy(np.full((9, 10), False, dtype=bool))).cuda() # TODO: what should happen here?
-        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m,  attn_mask=src_tgt_attention)[0])
-        return self.sublayer[2](x, self.feed_forward)
-
-def subsequent_mask(size):
-    "Mask out subsequent positions."
-    attn_shape = (1, size, size)
-    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-    return torch.from_numpy(subsequent_mask) == 0
 
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
@@ -193,22 +126,17 @@ class Embeddings(nn.Module):
 
 def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6, 
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
-    "Helper: Construct a model from hyperparameters."
+    """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = nn.MultiheadAttention(d_model, h, batch_first=True)
-    # attn = MultiHeadedAttention(h, d_model)
+    attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
     model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
-        Decoder(DecoderLayer(d_model, c(attn), c(attn), 
-                             c(ff), dropout), N), # TODO: this should not be used anymore... 
         nn.Sequential(NodeEmbedding(d_model, d_input)),
         nn.Sequential(Embeddings(d_model, tgt_vocab)),
         Generator(d_model, tgt_vocab))
     
-    # This was important from their code. 
-    # Initialize parameters with Glorot / fan_avg.
     for p in model.parameters():
         if p.dim() > 1:
             nn.init.xavier_uniform(p)
