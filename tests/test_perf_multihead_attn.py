@@ -4,12 +4,12 @@ import torch
 from packages.transformer.apex_multihead_attn.self_multihead_attn import SelfMultiheadAttn
 
 def test_performance_self():
-    seq_length = 10
-    num_seqs_start = 2
-    num_seqs_stop = 10
-    num_seqs_inc = 1
-    num_trials = 1
-    warmup_trials = 0
+    seq_length = 64
+    num_seqs_start = 10
+    num_seqs_stop = 120
+    num_seqs_inc = 5
+    num_trials = 20
+    warmup_trials = 5
 
     layers = 2
     hidden_dim = 1024
