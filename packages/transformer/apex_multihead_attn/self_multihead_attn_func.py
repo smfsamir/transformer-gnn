@@ -42,10 +42,10 @@ class SelfAttnFunc(torch.autograd.Function):
             )
         else:
             input_lin_mm_view = inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2))
-            print(inputs)
-            print(input_weights)
-            print(f"See left shape here: {input_lin_mm_view.shape}")
-            print(f"See right shape here: {input_weights.transpose(0,1).shape}")
+            # print(inputs)
+            # print(input_weights)
+            # print(f"See left shape here: {input_lin_mm_view.shape}")
+            # print(f"See right shape here: {input_weights.transpose(0,1).shape}")
             input_lin_results = torch.mm(
                 input_lin_mm_view, input_weights.transpose(0, 1)
             )
@@ -244,7 +244,7 @@ class SelfAttnFunc(torch.autograd.Function):
         dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 1.0 / (1.0 - dropout_prob_t[0]))
 
         # Softmax Grad (not a publically documented op)
-        softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results)
+        softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results.dtype)
 
         # Matmul1 - DGRAD1
         # Input1: (data grads)  [seqs*heads, seql_q, seql_k]
