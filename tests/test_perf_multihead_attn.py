@@ -78,11 +78,11 @@ def test_performance_self():
         elapsed_time_fwd += start_evt_fwd[evt_idx].elapsed_time(start_evt_bwd[evt_idx])
         elapsed_time_bwd += start_evt_bwd[evt_idx].elapsed_time(stop_evt_bwd[evt_idx])
 
-    print("[ {} Attn {} ]Total Tokens: {:4d} Sequences: {:3d} Sequence Length: {:3d} Fwd Time / Layer: {:.3f} ms Bwd Time / Layer: {:.3f} ms".format(
-        'Self',              \
-        'Norm&Add' if use_norm_add else '',                   \
-        sequences*seq_length,                             \
-        sequences,                                             \
-        seq_length,                                       \
-        elapsed_time_fwd / ( num_trials * layers ),      \
-        elapsed_time_bwd / ( num_trials * layers )))
+        print("[ {} Attn {} ]Total Tokens: {:4d} Sequences: {:3d} Sequence Length: {:3d} Fwd Time / Layer: {:.3f} ms Bwd Time / Layer: {:.3f} ms".format(
+            'Self',              \
+            'Norm&Add' if use_norm_add else '',                   \
+            sequences*seq_length,                             \
+            sequences,                                             \
+            seq_length,                                       \
+            elapsed_time_fwd / ( num_trials * layers ),      \
+            elapsed_time_bwd / ( num_trials * layers )))
