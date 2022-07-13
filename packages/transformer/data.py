@@ -22,7 +22,6 @@ class TransformerGraphBundleInput:
         """
         self.src_feats = src_feats.cuda()
 
-        # TODO: should this be 0 or 1?
         self.src_mask = (adj_mat == 1) 
 
         self.trg_labels = trg_labels.cuda() 
