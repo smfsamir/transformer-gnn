@@ -62,14 +62,14 @@ def test_performance_self():
                                                         is_training=True)
                 layer_inputs = outputs
         
-        if evt_idx >= 0 :
-            start_evt_bwd[evt_idx].record()
+            if evt_idx >= 0 :
+                start_evt_bwd[evt_idx].record()
 
-        # if not args.fwd :
-        layer_inputs.backward(grads)
-    
-        if evt_idx >= 0 :
-            stop_evt_bwd[evt_idx].record()
+            # if not args.fwd :
+            layer_inputs.backward(grads)
+        
+            if evt_idx >= 0 :
+                stop_evt_bwd[evt_idx].record()
     torch.cuda.synchronize()
 
     elapsed_time_fwd = 0.0
