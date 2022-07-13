@@ -25,7 +25,7 @@ class SelfAttnFunc(torch.autograd.Function):
         scale_t = torch.tensor([scale])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
-        head_dim = inputs.size(2) // heads
+        head_dim = torch.div(inputs.size(2), heads, rounding_mode='floor')
 
         # Input Linear GEMM
         # input1: (activations) [seql_q, seqs, embed_dim(1024)]
@@ -181,7 +181,7 @@ class SelfAttnFunc(torch.autograd.Function):
             dropout_prob_t,
         ) = ctx.saved_tensors
 
-        head_dim = inputs.size(2) // heads_t[0]
+        head_dim = torch.div(inputs.size(2), heads_t[0], rounding_mode='floor')
 
         # Slice out q,k,v from one big Input Linear outuput (should only impact meta data, no copies!)
         # Sequences and heads are combined to make the batch of the Batched GEMM
@@ -244,6 +244,7 @@ class SelfAttnFunc(torch.autograd.Function):
         dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 1.0 / (1.0 - dropout_prob_t[0]))
 
         # Softmax Grad (not a publically documented op)
+        print(f"softmax_results shape: {softmax_results.shape}")
         softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results.dtype)
 
         # Matmul1 - DGRAD1
