@@ -5,7 +5,7 @@ from scipy.sparse import coo_matrix
 """Utilities for manipulating COO sparse matrices
 (since these are the only ones supported by CUDA). :)
 """
-def select_submatrix(sparse_adj: torch.Tensor, indices: torch.Tensor, indices_argsort: torch.Tensor):
+def select_submatrix(sparse_adj: torch.Tensor, indices: torch.Tensor, indices_argsort: torch.Tensor, device: str):
     """_summary_
 
     Args:
@@ -19,19 +19,19 @@ def select_submatrix(sparse_adj: torch.Tensor, indices: torch.Tensor, indices_ar
     # NOTE: if necessary, this could be faster by changing the row selection matrix and column matrix to sparse matrices.
     assert sparse_adj.is_sparse
     row_diagonal_inds = torch.vstack((indices_argsort, indices))
-    vals = torch.ones(indices.shape[0], device='cuda')
-    row_selection_mat = torch.sparse_coo_tensor(row_diagonal_inds, vals, size=(indices.shape[0], sparse_adj.shape[1]), device='cuda') 
+    vals = torch.ones(indices.shape[0], device=device)
+    row_selection_mat = torch.sparse_coo_tensor(row_diagonal_inds, vals, size=(indices.shape[0], sparse_adj.shape[1]), device=device) 
 
     col_diagonal_inds = torch.vstack((indices, indices_argsort))
-    col_selection_mat = torch.sparse_coo_tensor(col_diagonal_inds, vals, size=(sparse_adj.shape[0], indices.shape[0]), device='cuda') # dense
+    col_selection_mat = torch.sparse_coo_tensor(col_diagonal_inds, vals, size=(sparse_adj.shape[0], indices.shape[0]), device=device) # dense
     row_selected_mat = torch.sparse.mm(row_selection_mat, sparse_adj)  
     submat = torch.sparse.mm(row_selected_mat, col_selection_mat)
     return submat.to_dense() # NOTE: It's possible we could just keep this as sparse. I doubt it'll make a difference
 
-def convert_scipy_sparse_to_torch(scipy_coo_mat):
+def convert_scipy_sparse_to_torch(scipy_coo_mat, device):
     indices = np.vstack((scipy_coo_mat.row, scipy_coo_mat.col))
     values = scipy_coo_mat.data
     i = torch.LongTensor(indices)
     v = torch.FloatTensor(values)
     shape = scipy_coo_mat.shape 
-    return torch.sparse_coo_tensor(i, v, (shape), device='cuda')    
+    return torch.sparse_coo_tensor(i, v, (shape), device=device)    
