@@ -11,7 +11,7 @@ from packages.utils.sp_utils import convert_scipy_sparse_to_torch, select_submat
 
 class TransformerGraphBundleInput:
     "Object for holding a minibatch of data with mask during training."
-    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, adj_mat: torch.Tensor, train_inds: torch.Tensor):
+    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, adj_mat: torch.Tensor, train_inds: torch.Tensor, device: str):
         """Object for holding required (simple) graph data.
 
         Args:
@@ -20,11 +20,11 @@ class TransformerGraphBundleInput:
             adj_mat (torch.Tensor): B x L x B_in x B_in. (To start, we'll use batch of size B=1). L is the number of layers, since each layer will have a different matrix.
             train_inds (torch.Tensor): B x B_out 
         """
-        self.src_feats = src_feats.cuda()
+        self.src_feats = src_feats.to(device)
 
         self.src_mask = (adj_mat == 1) 
 
-        self.trg_labels = trg_labels.cuda() 
+        self.trg_labels = trg_labels.to(device) 
         self.ntokens = trg_labels.shape[1] # number of labelled tokens in the batch. TODO: need to think about this. How will the minibatch updating work?
         self.train_inds = train_inds
 
