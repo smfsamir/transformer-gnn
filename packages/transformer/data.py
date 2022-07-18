@@ -1,17 +1,17 @@
-from cProfile import label
-from lib2to3.pytree import convert
+from typing import Iterator, Tuple
+from dgl.heterograph import DGLBlock
 import dgl
 from dgl.data import citation_graph as citegrh
 import sys
 import numpy as np
 import torch
-from torch_sparse import spmm
+# from torch_sparse import spmm
 
 from packages.utils.sp_utils import convert_scipy_sparse_to_torch, select_submatrix
 
 class TransformerGraphBundleInput:
     "Object for holding a minibatch of data with mask during training."
-    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, adj_mat: torch.Tensor, train_inds: torch.Tensor, device: str):
+    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, src_mask: torch.Tensor, train_inds: torch.Tensor, device: str):
         """Object for holding required (simple) graph data.
 
         Args:
@@ -22,10 +22,10 @@ class TransformerGraphBundleInput:
         """
         self.src_feats = src_feats.to(device)
 
-        self.src_mask = (adj_mat == 1) 
+        self.src_mask = src_mask
 
         self.trg_labels = trg_labels.to(device) 
-        self.ntokens = trg_labels.shape[1] # number of labelled tokens in the batch. TODO: need to think about this. How will the minibatch updating work?
+        self.ntokens = trg_labels.shape[0] * trg_labels.shape[1] # number of labelled tokens in the batch. TODO: need to think about this. How will the minibatch updating work?
         self.train_inds = train_inds
 
 def retrieve_features_for_minibatch(batch_global_inds, all_features):
@@ -47,10 +47,36 @@ def retrieve_labels_for_minibatch(global_output_node_inds: torch.Tensor, all_lab
     """
     return all_labels[global_output_node_inds] 
 
-def cora_data_gen(graph: dgl.DGLGraph, train_nids: torch.Tensor, 
-                  batch_size: int,
+def convert_mfg_to_sg_adj(mfg: DGLBlock, square_shape: int, device: str):
+    sparse_adj = mfg.adj()
+    square_adj = torch.sparse_coo_tensor(sparse_adj._indices(), sparse_adj._values(), size=(square_shape, square_shape), device=device) 
+    return square_adj.to_dense()
+
+def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels, device):
+    first_layer_mfg = mfgs[0]
+    second_layer_mfg = mfgs[1]
+
+    all_parallel_inds = torch.arange(subgraph_nodes.shape[0], device=device)
+    first_layer_adj_submatrix = convert_mfg_to_sg_adj(first_layer_mfg, subgraph_nodes.shape[0], device) + torch.eye(subgraph_nodes.shape[0], device=device) 
+    second_layer_adj_submatrix = convert_mfg_to_sg_adj(second_layer_mfg, subgraph_nodes.shape[0], device) + torch.eye(subgraph_nodes.shape[0], device=device) 
+    output_node_inds = all_parallel_inds[: target_nodes.shape[0]]
+    
+    minibatch_adjacencies = torch.stack((first_layer_adj_submatrix, second_layer_adj_submatrix))
+    all_minibatch_feats = all_features[subgraph_nodes, :]
+
+    all_minibatch_feats = all_minibatch_feats.unsqueeze(0)
+    minibatch_adjacencies = minibatch_adjacencies.unsqueeze(0) == 1
+    minibatch_labels = all_labels[target_nodes].unsqueeze(0)
+    output_node_inds = output_node_inds.unsqueeze(0)
+
+    minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, device)
+    return minibatch
+
+def cora_data_gen(dataloader: Iterator[Tuple[torch.Tensor, torch.Tensor, DGLBlock]], 
+                  nbatches: int,
                   features: torch.Tensor, 
-                  labels: torch.Tensor) -> TransformerGraphBundleInput:
+                  labels: torch.Tensor, 
+                  device: str) -> TransformerGraphBundleInput:
     """Generate batches of cora datapoints one at a time, used for trainign and validation. Called once per epoch.
 
     Args:
@@ -62,55 +88,16 @@ def cora_data_gen(graph: dgl.DGLGraph, train_nids: torch.Tensor,
         labels (torch.Tensor): The labels for all the data.
 
     Returns:
-        TransformerGraphBundleInput: _description_
+        TransformerGraphBundleInput: 
     """
-    # TODO: should these be constructed in the function? I presume not.
-    sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    dataloader = dgl.dataloading.DataLoader(
-        graph, train_nids, sampler,
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=False,
-        num_workers=0)
-    dataloader_iter = iter(dataloader)
-    sparse_adj = convert_scipy_sparse_to_torch(graph.adj(scipy_fmt='coo'))
-
-    nbatches = len(train_nids) // batch_size
     for _ in range(nbatches):
-        # TODO: must check that the node indices returned by the sampler align with those of the labels... 
-            # should be fine, I think. If nec, come back to this when the model actually runs... 
-        
-        input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
-        all_parallel_indices = torch.arange(input_nodes.shape[0], device='cuda')
-
-        src_inds_first_layer = (mfgs[0].srcdata[dgl.NID])
-        dst_inds_first_layer = (mfgs[0].dstdata[dgl.NID])
-        two_hop_neighbour_inds_argsort_inds = all_parallel_indices[dst_inds_first_layer.shape[0]:]
-        output_node_argsort_inds = all_parallel_indices[: output_nodes.shape[0]] # NOTE: is this an invariant form for DGL? It's probably not guaranteed 
-
-        first_layer_adj_submatrix = select_submatrix(sparse_adj, src_inds_first_layer, all_parallel_indices) # TODO: does this work?
-        first_layer_adj_submatrix = first_layer_adj_submatrix + torch.eye(first_layer_adj_submatrix.shape[0], device='cuda') # NOTE: adding self-connections.
-
-        second_layer_adj_submatrix = first_layer_adj_submatrix.detach().clone()
-        second_layer_adj_submatrix[:, two_hop_neighbour_inds_argsort_inds] = 0 
-        second_layer_adj_submatrix = second_layer_adj_submatrix + torch.eye(second_layer_adj_submatrix.shape[0], device='cuda') # NOTE: adding self-connections.
-        
-        minibatch_adjacencies = torch.stack((first_layer_adj_submatrix, second_layer_adj_submatrix))
-        all_minibatch_feats = retrieve_features_for_minibatch(src_inds_first_layer, features)
-
-        all_minibatch_feats = all_minibatch_feats.unsqueeze(0)
-        minibatch_adjacencies = minibatch_adjacencies.unsqueeze(0)
-        minibatch_labels = retrieve_labels_for_minibatch(output_nodes, labels).unsqueeze(0)
-        output_node_inds = output_node_argsort_inds.unsqueeze(0)
-
-        minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds)
-        yield minibatch
+        input_nodes, output_nodes, mfgs = next(dataloader) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
+        minibatch = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
+        yield minibatch 
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor):
-    # TODO: forgetting self connections
     adj_mat_layerwise = adj.expand(2,-1,-1) 
     return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0))
-
 
 def load_cora_data():
     data = citegrh.load_cora()

@@ -70,6 +70,7 @@ def train_model():
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
     graph = dgl.graph((adj.row, adj.col)).to('cuda')
+    device = 'cuda'
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
     model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
@@ -77,13 +78,27 @@ def train_model():
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
     best_loss = float("inf") 
-    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to('cuda')
-    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to('cuda')
-    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to('cuda')
+    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to(device)
+    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to(device)
+    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
+
+    sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
+    batch_size = 64
+    dataloader = dgl.dataloading.DataLoader(
+        graph, train_nids, sampler,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=False,
+        num_workers=0)
+    dataloader_iter = iter(dataloader)
+
     for nepoch in range(nepochs):
         model.train()
-        epoch_loss = run_epoch(cora_data_gen(graph, train_nids, 64, features, labels), model, 
+        nbatches = train_nids.shape[0] // batch_size
+        epoch_loss = run_epoch(cora_data_gen(dataloader_iter, nbatches, features, labels, device), model, 
             SimpleLossCompute(model.generator, criterion, model_opt))
+        # epoch_loss = run_epoch(construct_batch(graph, train_nids, 64, features, labels), model, 
+        #     SimpleLossCompute(model.generator, criterion, model_opt))
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         
