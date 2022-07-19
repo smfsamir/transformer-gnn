@@ -72,8 +72,10 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
     minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, device)
     return minibatch
 
+# TODO: this needs to change for packing batches. reduce the number of loops
 def cora_data_gen(dataloader: Iterator[Tuple[torch.Tensor, torch.Tensor, DGLBlock]], 
                   nbatches: int,
+                  num_subgraphs: int,
                   features: torch.Tensor, 
                   labels: torch.Tensor, 
                   device: str) -> TransformerGraphBundleInput:
