@@ -5,7 +5,6 @@ from dgl.data import citation_graph as citegrh
 import sys
 import numpy as np
 import torch
-from torch_sparse import spmm
 
 from packages.utils.sp_utils import convert_scipy_sparse_to_torch, select_submatrix
 
@@ -103,13 +102,13 @@ def cora_data_gen(graph: dgl.DGLGraph, train_nids: torch.Tensor,
         minibatch_labels = retrieve_labels_for_minibatch(output_nodes, labels).unsqueeze(0)
         output_node_inds = output_node_argsort_inds.unsqueeze(0)
 
-        minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds)
+        minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, 'cuda')
         yield minibatch
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor):
     # TODO: forgetting self connections
     adj_mat_layerwise = adj.expand(2,-1,-1) 
-    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0))
+    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), 'cuda')
 
 
 def load_cora_data():
