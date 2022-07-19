@@ -110,9 +110,6 @@ def train_model():
         
         model.eval()
         with torch.no_grad():
-            # TODO: it's not clear why this even works??
-            # validation_loss = run_eval_epoch(test_cora_data_gen(graph, features, val_nids, 64, , labels), model, 
-            #     SimpleLossCompute(model.generator, criterion, None))
             validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
