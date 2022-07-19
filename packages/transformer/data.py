@@ -1,4 +1,4 @@
-from typing import Iterator, Tuple
+from typing import Iterator, Tuple, List
 from dgl.heterograph import DGLBlock
 import dgl
 from dgl.data import citation_graph as citegrh
@@ -72,8 +72,27 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
     minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, device)
     return minibatch
 
+def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, device: str) -> None: # WARNING: mutates graph bundle object
+    src_mask = graph_bundle.src_mask.squeeze(0) 
+    size_subgraph = src_mask.shape[1]
+    padded_src_mask = torch.zeros((src_mask.shape[0], 512, 512), device=device)
+    padded_src_mask[:, : size_subgraph, : size_subgraph] = src_mask
+
+    src_feats = graph_bundle.src_feats.squeeze(0)
+    padded_src_feats = torch.zeros((512, src_feats.shape[-1]), device=device)
+    padded_src_feats[: size_subgraph, :src_feats.shape[-1]] = src_feats
+    graph_bundle.src_feats = padded_src_feats.unsqueeze(0)
+    graph_bundle.src_mask = padded_src_mask.unsqueeze(0)
+
+def stack_graph_bundles(graph_bundles: List[TransformerGraphBundleInput]) -> TransformerGraphBundleInput:
+    src_masks = torch.cat([graph_bundle.src_mask for graph_bundle in graph_bundles])
+    src_feats = torch.cat([graph_bundle.src_feats for graph_bundle in graph_bundles])
+    trg_labels = torch.cat([graph_bundle.trg_labels for graph_bundle in graph_bundles])
+    train_inds = torch.cat([graph_bundle.train_inds for graph_bundle in graph_bundles])
+    return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, 'cuda')
+
 # TODO: this needs to change for packing batches. reduce the number of loops
-def cora_data_gen(dataloader: Iterator[Tuple[torch.Tensor, torch.Tensor, DGLBlock]], 
+def cora_data_gen(dataloader: dgl.dataloading.DataLoader, 
                   nbatches: int,
                   num_subgraphs: int,
                   features: torch.Tensor, 
@@ -92,14 +111,27 @@ def cora_data_gen(dataloader: Iterator[Tuple[torch.Tensor, torch.Tensor, DGLBloc
     Returns:
         TransformerGraphBundleInput: 
     """
-    for _ in range(nbatches):
-        input_nodes, output_nodes, mfgs = next(dataloader) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
-        minibatch = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
-        yield minibatch 
+    dataloader_iter = iter(dataloader)
+    niters = nbatches // num_subgraphs
+    for _ in range(niters):
+        if num_subgraphs > 1:
+            graph_bundles = []
+            for batch_i in range(num_subgraphs):
+                input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
+                input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
+                pad_graph_bundle(input_graph_bundle, device) # mutation
+                graph_bundles.append(input_graph_bundle)
+            batch_input_graph_bundle = stack_graph_bundles(graph_bundles)
+            yield batch_input_graph_bundle 
+        else: 
+            input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
+            input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
+            yield input_graph_bundle
 
-def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor):
+
+def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 
-    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0))
+    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), device)
 
 def load_cora_data():
     data = citegrh.load_cora()

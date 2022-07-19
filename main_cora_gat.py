@@ -14,7 +14,7 @@ from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen
 from packages.utils.checkpointing import load_model, checkpoint_model
 from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
-def run_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, loss_compute: SimpleLossCompute):
+def run_train_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, loss_compute: SimpleLossCompute):
     "Standard Training and Logging Function"
     start = time.time()
     total_loss = 0
@@ -62,8 +62,8 @@ def train_model():
     tb_sw = SummaryWriter()
 
     data = citegrh.load_cora()
-    features = torch.tensor(data.features, device='cuda')
-    labels = torch.tensor(data.labels, device='cuda')
+    features = data.features.clone().detach().to('cuda')
+    labels = torch.tensor(data.labels, device=('cuda')) 
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
     test_mask = torch.BoolTensor(data.test_mask)
@@ -83,28 +83,37 @@ def train_model():
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    batch_size = 64
-    dataloader = dgl.dataloading.DataLoader(
+    batch_size = 32
+    train_dataloader = dgl.dataloading.DataLoader(
         graph, train_nids, sampler,
         batch_size=batch_size,
         shuffle=True,
-        drop_last=False,
-        num_workers=0)
-    dataloader_iter = iter(dataloader)
+        drop_last=True,
+        num_workers=0, 
+        device=device)
+    val_dataloader = dgl.dataloading.DataLoader(
+        graph, val_nids, sampler,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=0, 
+        device=device)
+    num_subgraphs = 4
 
     for nepoch in range(nepochs):
         model.train()
         nbatches = train_nids.shape[0] // batch_size
-        epoch_loss = run_epoch(cora_data_gen(dataloader_iter, nbatches, features, labels, device), model, 
+        epoch_loss = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
             SimpleLossCompute(model.generator, criterion, model_opt))
-        # epoch_loss = run_epoch(construct_batch(graph, train_nids, 64, features, labels), model, 
-        #     SimpleLossCompute(model.generator, criterion, model_opt))
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         
         model.eval()
         with torch.no_grad():
-            validation_loss = run_eval_epoch(cora_data_gen(graph, val_nids, 64, features, labels), model, 
+            # TODO: it's not clear why this even works??
+            # validation_loss = run_eval_epoch(test_cora_data_gen(graph, features, val_nids, 64, , labels), model, 
+            #     SimpleLossCompute(model.generator, criterion, None))
+            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
@@ -115,7 +124,7 @@ def train_model():
     model.eval()
     with torch.no_grad():
         test_labels = labels[test_nids]
-        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels), model)
+        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels, device), model)
         tb_sw.add_scalar('Accuracy/test', test_acc)
 
 def visualize_jacobian():
@@ -125,7 +134,6 @@ def visualize_jacobian():
     jacobianized_model = JacobianGAT(model, 0, 1, cora_data_gen(features, labels, train_mask, adj))
     visualize_influence(jacobianized_model, features[0])
 
-
 def main(args):
     if args.train_model:
         train_model()
@@ -133,9 +141,6 @@ def main(args):
         visualize_jacobian()
     elif args.test_dataloader_dgl:
         test_dataloader_dgl()
-
-
-
 
 if __name__ == "__main__":
     parser = ArgumentParser()
