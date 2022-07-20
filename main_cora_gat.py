@@ -28,6 +28,7 @@ def run_epoch(
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
+        optimizer.zero_grad(set_to_none=True)
         with torch.cuda.amp.autocast_mode.autocast():
             out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                                 subgraph_bundle.train_inds) # B x B_out x model_D.  
@@ -39,7 +40,6 @@ def run_epoch(
         # loss_node.backward()
         SCALER.step(optimizer)
         SCALER.update()
-        optimizer.zero_grad(set_to_none=True)
         scheduler.step()
     elapsed = time.time() - start
     print(f"Train loss on epoch: {total_loss / ntokens}; time taken: {elapsed}")
