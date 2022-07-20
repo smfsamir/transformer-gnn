@@ -29,11 +29,11 @@ def run_epoch(
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
         optimizer.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast_mode.autocast():
-            out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
-                                subgraph_bundle.train_inds) # B x B_out x model_D.  
+        # with torch.cuda.amp.autocast_mode.autocast():
+        out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
+                            subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
-            loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
+        loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
         total_loss += loss
         SCALER.scale(loss_node).backward()
