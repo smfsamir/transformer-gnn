@@ -79,7 +79,7 @@ def train_model():
     tb_sw = SummaryWriter()
 
     data = citegrh.load_cora()
-    features = torch.tensor(data.features, device='cuda', dtype=torch.float16)
+    features = torch.tensor(data.features, device='cuda')
     labels = torch.tensor(data.labels, device='cuda')
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
