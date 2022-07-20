@@ -79,7 +79,7 @@ def train_model():
     tb_sw = SummaryWriter()
 
     data = citegrh.load_cora()
-    features = torch.tensor(data.features, device='cuda')
+    features = torch.tensor(data.features, device='cuda').half()
     labels = torch.tensor(data.labels, device='cuda')
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
@@ -88,8 +88,8 @@ def train_model():
     adj = graph.adj(scipy_fmt='coo')
     graph = dgl.graph((adj.row, adj.col)).to('cuda')
 
-    criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
+    criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda().half()
+    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda().half() # +1 for the padding index, though I don't think it's necessary.
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1, betas=(0.9, 0.98), eps=1e-9)
 
