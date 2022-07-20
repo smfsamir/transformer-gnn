@@ -1,3 +1,4 @@
+import sys
 from argparse import ArgumentParser
 import time
 import dgl
@@ -78,7 +79,7 @@ def train_model():
     tb_sw = SummaryWriter()
 
     data = citegrh.load_cora()
-    features = torch.tensor(data.features, device='cuda')
+    features = torch.tensor(data.features, device='cuda', dtype=torch.float16)
     labels = torch.tensor(data.labels, device='cuda')
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
@@ -132,7 +133,6 @@ def visualize_jacobian():
     jacobianized_model = JacobianGAT(model, 0, 1, cora_data_gen(features, labels, train_mask, adj))
     visualize_influence(jacobianized_model, features[0])
 
-
 def main(args):
     if args.train_model:
         train_model()
@@ -140,9 +140,6 @@ def main(args):
         visualize_jacobian()
     elif args.test_dataloader_dgl:
         test_dataloader_dgl()
-
-
-
 
 if __name__ == "__main__":
     parser = ArgumentParser()
