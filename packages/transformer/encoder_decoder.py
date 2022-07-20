@@ -98,6 +98,7 @@ class EncoderLayer(nn.Module):
             input_x = input_x.transpose(1,0).contiguous()
             res = self.self_attn(x.transpose(1,0), x.transpose(1,0), x.transpose(1,0), attn_mask=mask)[0]
             res = res.transpose(1,0).contiguous()
+        x = self.sublayer[0](x, _self_attn) 
         return self.sublayer[1](x, self.feed_forward)
 
 class PositionwiseFeedForward(nn.Module):
