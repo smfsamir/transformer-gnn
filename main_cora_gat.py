@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 import time
-from bitarray import test
 import dgl
+from torch.optim.lr_scheduler import LambdaLR
 from dgl.data import citation_graph as citegrh
 import torch
 from main_transformer import TransformerGraphBundleInput
@@ -14,7 +14,12 @@ from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen
 from packages.utils.checkpointing import load_model, checkpoint_model
 from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
-def run_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, loss_compute: SimpleLossCompute):
+def run_epoch(
+    subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], 
+    model: EncoderDecoder, 
+    loss_compute: SimpleLossCompute,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR):
     "Standard Training and Logging Function"
     start = time.time()
     total_loss = 0
@@ -23,8 +28,13 @@ def run_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], 
         out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                             subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
-        total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
+        loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
+        total_loss += loss
+        loss_node.backward()
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        scheduler.step()
     elapsed = time.time() - start
     print(f"Train loss on epoch: {total_loss / ntokens}; time taken: {elapsed}")
     return total_loss / ntokens
@@ -38,8 +48,9 @@ def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInp
         out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                             subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
-        total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
+        loss, _ = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
+        total_loss += loss
     elapsed = time.time() - start
     print(f"Validation loss on epoch: {total_loss / ntokens}")
     return total_loss / ntokens 
@@ -73,8 +84,14 @@ def train_model():
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
     model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
-        torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=1, betas=(0.9, 0.98), eps=1e-9)
+
+    lr_scheduler = LambdaLR(
+        optimizer = optimizer, lr_lambda=lambda step: rate(step, model.src_embed[0].d_model, factor = 1.0, warmup = 400)
+    )
+
+
     nepochs = 100
     best_loss = float("inf") 
     train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to('cuda')
@@ -83,7 +100,7 @@ def train_model():
     for nepoch in range(nepochs):
         model.train()
         epoch_loss = run_epoch(cora_data_gen(graph, train_nids, 64, features, labels), model, 
-            SimpleLossCompute(model.generator, criterion, model_opt))
+            SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         
