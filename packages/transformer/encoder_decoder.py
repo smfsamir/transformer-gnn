@@ -135,7 +135,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, impl='default') # should bias be true? I think we essentially have it false.
+    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default') # should bias be true? I think we essentially have it false.
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
     model = EncoderDecoder(
