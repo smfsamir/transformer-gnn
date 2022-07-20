@@ -95,8 +95,8 @@ class EncoderLayer(nn.Module):
         "Follow Figure 1 (left) for connections."
         # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         def _self_attn(input_x):
-            input_x = input_x.transpose(1,0).contiguous()
-            res = self.self_attn(x.transpose(1,0), x.transpose(1,0), x.transpose(1,0), attn_mask=mask)[0]
+            input_x = input_x.transpose(1,0).contiguous().half()
+            res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
             res = res.transpose(1,0).contiguous()
             return res
         x = self.sublayer[0](x, _self_attn) 
