@@ -14,6 +14,8 @@ from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen
 from packages.utils.checkpointing import load_model, checkpoint_model
 from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
+SCALER = torch.cuda.amp.grad_scaler.GradScaler()
+
 def run_epoch(
     subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], 
     model: EncoderDecoder, 
@@ -25,14 +27,17 @@ def run_epoch(
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
-        out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
-                            subgraph_bundle.train_inds) # B x B_out x model_D.  
+        with torch.cuda.amp.autocast_mode.autocast():
+            out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
+                                subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
-        loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
+            loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
         total_loss += loss
-        loss_node.backward()
-        optimizer.step()
+        SCALER.scale(loss_node).backward()
+        # loss_node.backward()
+        SCALER.step(optimizer)
+        SCALER.update()
         optimizer.zero_grad(set_to_none=True)
         scheduler.step()
     elapsed = time.time() - start
