@@ -1,5 +1,5 @@
 import math
-from platform import node
+from apex.contrib.multihead_attn import SelfMultiheadAttn
 from typing import Optional
 import torch
 from torch import nn
@@ -92,7 +92,7 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask=mask)) 
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         return self.sublayer[1](x, self.feed_forward)
 
 class PositionwiseFeedForward(nn.Module):
@@ -128,7 +128,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = MultiHeadedAttention(h, d_model)
+    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True) # should bias be true? I think we essentially have it false.
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
     model = EncoderDecoder(
