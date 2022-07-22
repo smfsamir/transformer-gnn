@@ -1,5 +1,6 @@
 import math
 from apex.contrib.multihead_attn import SelfMultiheadAttn
+from torch.cuda.amp.autocast_mode import autocast
 from apex.normalization.fused_layer_norm import FusedLayerNorm
 from typing import Optional
 import torch
@@ -98,10 +99,11 @@ class EncoderLayer(nn.Module):
         "Follow Figure 1 (left) for connections."
         # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         def _self_attn(input_x):
-            input_x = input_x.transpose(1,0).contiguous()
-            res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
-            res = res.transpose(1,0).contiguous()
-            return res
+            with autocast(enabled=False):
+                input_x = input_x.transpose(1,0).contiguous()
+                res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
+                res = res.transpose(1,0).contiguous()
+                return res
         x = self.sublayer[0](x, _self_attn) 
         return self.sublayer[1](x, self.feed_forward)
 

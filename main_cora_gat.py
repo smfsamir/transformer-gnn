@@ -3,10 +3,12 @@ from argparse import ArgumentParser
 import time
 import dgl
 from torch.optim.lr_scheduler import LambdaLR
+from torch.cuda.amp.autocast_mode import autocast
 from dgl.data import citation_graph as citegrh
 import torch
 from main_transformer import TransformerGraphBundleInput
 from typing import Iterator
+
 from torch.utils.tensorboard import SummaryWriter
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
@@ -29,7 +31,7 @@ def run_epoch(
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
         optimizer.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast_mode.autocast():
+        with autocast():
             out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                                 subgraph_bundle.train_inds) # B x B_out x model_D.  
             loss, loss_node = loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
