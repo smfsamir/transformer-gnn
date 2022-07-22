@@ -1,5 +1,6 @@
 import math
 from apex.contrib.multihead_attn import SelfMultiheadAttn
+from apex.normalization.fused_layer_norm import FusedLayerNorm
 from typing import Optional
 import torch
 from torch import nn
@@ -57,7 +58,8 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.num_layers = N
         self.layers = clones(layer, N)
-        self.norm = nn.LayerNorm(layer.size)
+        # self.norm = nn.LayerNorm(layer.size)
+        self.norm = FusedLayerNorm(layer.size)
         
     def forward(self, x, masks):
         "Pass the input (and mask) through each layer in turn."
@@ -80,7 +82,8 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+        # return x + self.dropout(sublayer(self.norm(x)))
+        return x + self.dropout(sublayer((x)))
 
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
@@ -95,7 +98,7 @@ class EncoderLayer(nn.Module):
         "Follow Figure 1 (left) for connections."
         # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         def _self_attn(input_x):
-            input_x = input_x.transpose(1,0).contiguous().half()
+            input_x = input_x.transpose(1,0).contiguous()
             res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
             res = res.transpose(1,0).contiguous()
             return res
@@ -136,6 +139,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
     attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default') # should bias be true? I think we essentially have it false.
+    # attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
     model = EncoderDecoder(
