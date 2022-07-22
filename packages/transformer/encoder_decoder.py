@@ -100,7 +100,7 @@ class EncoderLayer(nn.Module):
         # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         def _self_attn(input_x):
             with autocast(enabled=False):
-                input_x = input_x.transpose(1,0).contiguous()
+                input_x = input_x.half().transpose(1,0).contiguous()
                 res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
                 res = res.transpose(1,0).contiguous()
                 return res
@@ -140,7 +140,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default') # should bias be true? I think we essentially have it false.
+    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default').half() # should bias be true? I think we essentially have it false.
     # attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
