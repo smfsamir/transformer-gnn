@@ -1,10 +1,12 @@
 import torch
 import torch.nn.functional as F
+from torch.cuda.amp import custom_fwd, custom_bwd
 
 
 
 class SelfAttnFunc(torch.autograd.Function):
     @staticmethod
+    @custom_fwd(cast_inputs=torch.float16)
     def forward(
         ctx,
         use_time_mask,
@@ -165,6 +167,7 @@ class SelfAttnFunc(torch.autograd.Function):
         return outputs.detach()
 
     @staticmethod
+    @custom_bwd
     def backward(ctx, output_grads):
         (
             use_biases_t,

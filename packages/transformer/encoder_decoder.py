@@ -1,7 +1,8 @@
 import math
-from apex.contrib.multihead_attn import SelfMultiheadAttn
+# from apex.contrib.multihead_attn import SelfMultiheadAttn
+from .apex_multihead_attn.self_multihead_attn import SelfMultiheadAttn
 from torch.cuda.amp.autocast_mode import autocast
-from apex.normalization.fused_layer_norm import FusedLayerNorm
+# from apex.normalization.fused_layer_norm import FusedLayerNorm
 from typing import Optional
 import torch
 from torch import nn
@@ -59,8 +60,8 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.num_layers = N
         self.layers = clones(layer, N)
-        # self.norm = nn.LayerNorm(layer.size)
-        self.norm = FusedLayerNorm(layer.size)
+        self.norm = nn.LayerNorm(layer.size)
+        # self.norm = FusedLayerNorm(layer.size)
         
     def forward(self, x, masks):
         "Pass the input (and mask) through each layer in turn."
@@ -99,11 +100,10 @@ class EncoderLayer(nn.Module):
         "Follow Figure 1 (left) for connections."
         # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
         def _self_attn(input_x):
-            with autocast(enabled=False):
-                input_x = input_x.half().transpose(1,0).contiguous()
-                res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
-                res = res.transpose(1,0).contiguous()
-                return res
+            input_x = input_x.transpose(1,0).contiguous()
+            res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
+            res = res.transpose(1,0).contiguous()
+            return res
         x = self.sublayer[0](x, _self_attn) 
         return self.sublayer[1](x, self.feed_forward)
 
@@ -140,7 +140,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default').half() # should bias be true? I think we essentially have it false.
+    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, impl='default') # should bias be true? I think we essentially have it false.
     # attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
