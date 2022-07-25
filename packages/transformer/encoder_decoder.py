@@ -68,7 +68,7 @@ class Encoder(nn.Module):
         layer_i = 0
         for layer in self.layers:
             # x = layer(x, masks[:, layer_i, :, :])
-            x = layer(x, masks.squeeze(0)[layer_i, :, :])
+            x = layer(x, masks.squeeze(0)[layer_i, :, :] == 0)
             layer_i += 1
         return self.norm(x)
 
