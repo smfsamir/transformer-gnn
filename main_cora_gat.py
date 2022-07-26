@@ -44,7 +44,7 @@ def run_epoch(
         scheduler.step()
     elapsed = time.time() - start
     print(f"Train loss on epoch: {total_loss / ntokens}; time taken: {elapsed}")
-    return total_loss / ntokens
+    return total_loss / ntokens, elapsed
 
 def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, \
                     loss_compute: SimpleLossCompute):
@@ -76,8 +76,13 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model():
-    tb_sw = SummaryWriter()
+def train_model(bs: int):
+    """Train the GraphTransformer model for 32 epochs.
+
+    Args:
+        bs (int): batch size
+        num_sg (int): number of subgraphs. If 1, then no padding is done.
+    """
 
     data = citegrh.load_cora()
     features = torch.tensor(data.features, device='cuda')
@@ -97,27 +102,34 @@ def train_model():
     lr_scheduler = LambdaLR(
         optimizer = optimizer, lr_lambda=lambda step: rate(step, model.src_embed[0].d_model, factor = 1.0, warmup = 400)
     )
+    batch_size = bs
+
+    tb_log_dir = f"runs/batch-{batch_size}-fmha"
+    tb_sw = SummaryWriter(tb_log_dir)
 
     nepochs = 100
     best_loss = float("inf") 
+    best_loss_epoch = 0
     train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to('cuda')
     val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to('cuda')
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to('cuda')
     for nepoch in range(nepochs):
         model.train()
-        epoch_loss = run_epoch(cora_data_gen(graph, train_nids, 64, features, labels), model, 
+        epoch_loss, train_epoch_elapsed = run_epoch(cora_data_gen(graph, train_nids, batch_size, features, labels), model, 
             SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
+        tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)
         
         model.eval()
         with torch.no_grad():
-            validation_loss = run_eval_epoch(cora_data_gen(graph, val_nids, 64, features, labels), model, 
+            validation_loss = run_eval_epoch(cora_data_gen(graph, val_nids, batch_size, features, labels), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
                 checkpoint_model(model)
                 best_loss = validation_loss
+                best_loss_epoch = nepoch
             
     load_model(model) # mutation
     model.eval()
@@ -125,26 +137,15 @@ def train_model():
         test_labels = labels[test_nids]
         test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels), model)
         tb_sw.add_scalar('Accuracy/test', test_acc)
-
-def visualize_jacobian():
-    features, labels, train_mask, _, _, adj = load_cora_data()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
-    load_model(model) # mutation
-    jacobianized_model = JacobianGAT(model, 0, 1, cora_data_gen(features, labels, train_mask, adj))
-    visualize_influence(jacobianized_model, features[0])
+    print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def main(args):
-    if args.train_model:
-        train_model()
-    elif args.visualize_jacobian:
-        visualize_jacobian()
-    elif args.test_dataloader_dgl:
-        test_dataloader_dgl()
+    train_model(args.bs, args.num_sg)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--train_model", action="store_true")
-    parser.add_argument("--visualize_jacobian", action="store_true")
-    parser.add_argument("--test_dataloader_dgl", action="store_true")
+    parser.add_argument("bs", type=int)
+    # parser.add_argument("num_sg", type=int)
+
 
     main(parser.parse_args())
