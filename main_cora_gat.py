@@ -140,7 +140,7 @@ def train_model(bs: int):
     print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def main(args):
-    train_model(args.bs, args.num_sg)
+    train_model(args.bs)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
