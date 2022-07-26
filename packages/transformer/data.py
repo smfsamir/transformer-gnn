@@ -11,7 +11,7 @@ from packages.utils.sp_utils import convert_scipy_sparse_to_torch, select_submat
 
 class TransformerGraphBundleInput:
     "Object for holding a minibatch of data with mask during training."
-    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, src_mask: torch.Tensor, train_inds: torch.Tensor, device: str):
+    def __init__(self, src_feats: torch.Tensor, trg_labels: torch.Tensor, src_mask: torch.Tensor, train_inds: torch.Tensor, ntokens: int, device: str):
         """Object for holding required (simple) graph data.
 
         Args:
@@ -25,7 +25,7 @@ class TransformerGraphBundleInput:
         self.src_mask = src_mask
 
         self.trg_labels = trg_labels.to(device) 
-        self.ntokens = trg_labels.shape[0] * trg_labels.shape[1] # number of labelled tokens in the batch. TODO: need to think about this. How will the minibatch updating work?
+        self.ntokens = ntokens # number of labelled tokens in the batch. TODO: this is WRONG when we do padding. we should pass it in explicitly.
         self.train_inds = train_inds
 
 def retrieve_features_for_minibatch(batch_global_inds, all_features):
@@ -47,10 +47,12 @@ def retrieve_labels_for_minibatch(global_output_node_inds: torch.Tensor, all_lab
     """
     return all_labels[global_output_node_inds] 
 
+# TODO: shouldn't be necessary to convert back to dense. I was being lazy.
 def convert_mfg_to_sg_adj(mfg: DGLBlock, square_shape: int, device: str):
     sparse_adj = mfg.adj()
     square_adj = torch.sparse_coo_tensor(sparse_adj._indices(), sparse_adj._values(), size=(square_shape, square_shape), device=device) 
     return square_adj.to_dense()
+    # return square_adj
 
 def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels, device):
     first_layer_mfg = mfgs[0]
@@ -69,7 +71,7 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
     minibatch_labels = all_labels[target_nodes].unsqueeze(0)
     output_node_inds = output_node_inds.unsqueeze(0)
 
-    minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, device)
+    minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, output_node_inds.shape[1], device)
     return minibatch
 
 def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, device: str) -> None: # WARNING: mutates graph bundle object
@@ -89,7 +91,8 @@ def stack_graph_bundles(graph_bundles: List[TransformerGraphBundleInput]) -> Tra
     src_feats = torch.cat([graph_bundle.src_feats for graph_bundle in graph_bundles])
     trg_labels = torch.cat([graph_bundle.trg_labels for graph_bundle in graph_bundles])
     train_inds = torch.cat([graph_bundle.train_inds for graph_bundle in graph_bundles])
-    return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, 'cuda')
+    ntokens = sum([graph_bundle.ntokens for graph_bundle in graph_bundles])
+    return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, ntokens, 'cuda')
 
 # TODO: this needs to change for packing batches. reduce the number of loops
 def cora_data_gen(dataloader: dgl.dataloading.DataLoader, 
@@ -131,7 +134,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 
-    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), device)
+    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), test_nids.shape[0], device)
 
 def load_cora_data():
     data = citegrh.load_cora()

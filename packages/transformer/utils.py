@@ -14,3 +14,10 @@ def batched_index_select(input, dim, index):
 	expanse[dim] = -1
 	index = index.view(views).expand(expanse)
 	return torch.gather(input, dim, index)
+
+def visualize_jacobian():
+    features, labels, train_mask, _, _, adj = load_cora_data()
+    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
+    load_model(model) # mutation
+    jacobianized_model = JacobianGAT(model, 0, 1, cora_data_gen(features, labels, train_mask, adj))
+    visualize_influence(jacobianized_model, features[0])
