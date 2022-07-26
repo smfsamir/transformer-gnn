@@ -58,7 +58,13 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model():
+def train_model(bs: int, num_sg: int):
+    """Train the GraphTransformer model for 32 epochs.
+
+    Args:
+        bs (int): batch size
+        num_sg (int): number of subgraphs. If 1, then no padding is done.
+    """
 
     data = citegrh.load_cora()
     features = data.features.clone().detach().to('cuda')
@@ -82,7 +88,7 @@ def train_model():
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    batch_size = 32
+    batch_size = bs 
     train_dataloader = dgl.dataloading.DataLoader(
         graph, train_nids, sampler,
         batch_size=batch_size,
@@ -97,10 +103,10 @@ def train_model():
         drop_last=True,
         num_workers=0, 
         device=device)
-    num_subgraphs = 3
+    num_subgraphs = num_sg
     best_loss_epoch = 0
 
-    tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}/"
+    tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
     tb_sw = SummaryWriter(tb_log_dir)
     for nepoch in range(nepochs):
         model.train()
@@ -132,13 +138,12 @@ def train_model():
 
 
 def main(args):
-    if args.train_model:
-        train_model()
+    train_model(args.bs, args.num_sg)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--train_model", action="store_true")
-    parser.add_argument("--visualize_jacobian", action="store_true")
-    parser.add_argument("--test_dataloader_dgl", action="store_true")
+    parser.add_argument("bs", type=int)
+    parser.add_argument("num_sg", type=int)
 
     main(parser.parse_args())
