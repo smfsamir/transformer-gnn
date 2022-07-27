@@ -94,7 +94,6 @@ def stack_graph_bundles(graph_bundles: List[TransformerGraphBundleInput]) -> Tra
     ntokens = sum([graph_bundle.ntokens for graph_bundle in graph_bundles])
     return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, ntokens, 'cuda')
 
-# TODO: this needs to change for packing batches. reduce the number of loops
 def cora_data_gen(dataloader: dgl.dataloading.DataLoader, 
                   nbatches: int,
                   num_subgraphs: int,
@@ -130,7 +129,6 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
             input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
             input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
             yield input_graph_bundle
-
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 

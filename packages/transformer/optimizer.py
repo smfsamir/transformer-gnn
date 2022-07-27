@@ -32,6 +32,17 @@ def get_std_opt(model):
     return NoamOpt(model.src_embed[0].d_model, 2, 4000,
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
+def rate(step, model_size, factor, warmup):
+    """
+    we have to default the step to 1 for LambdaLR function
+    to avoid zero raising to negative power.
+    """
+    if step == 0:
+        step = 1
+    return factor * (
+        model_size ** (-0.5) * min(step ** (-0.5), step * warmup ** (-1.5))
+    )
+
 class LabelSmoothing(nn.Module):
     def __init__(self, size: int, padding_idx: int, smoothing=0.0):
         """Initialize Label Smoothing criterion
@@ -66,10 +77,9 @@ class LabelSmoothing(nn.Module):
 
 class SimpleLossCompute:
     "A simple loss compute and train function."
-    def __init__(self, generator, criterion, opt=None):
+    def __init__(self, generator, criterion ):
         self.generator = generator
         self.criterion = criterion
-        self.opt = opt
         
     def __call__(self, x, y, norm):
         """_summary_
@@ -80,15 +90,9 @@ class SimpleLossCompute:
             norm (_type_): _description_
 
         Returns:
-            _type_: _description_
+            Tuple[]: _description_
         """
-        # TODO: I'm assuming this will work for now. If anything goes wrong, need to check the criterion implementation to confirm later. 
         x = self.generator(x) # B x B_out x num_classes
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)), 
                               y.contiguous().view(-1)) / norm 
-        if self.opt is not None:
-            loss.backward()
-            self.opt.step()
-            self.opt.optimizer.zero_grad()
-        # return loss.data[0] * norm
-        return loss.data * norm
+        return loss.data * norm, loss 
