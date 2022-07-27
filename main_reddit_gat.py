@@ -96,7 +96,7 @@ def train_model(bs: int, num_sg: int):
     feats = load_reddit_feats()
     masks = load_reddit_masks()
     labels = load_reddit_labels()
-    num_classes = labels.unique()
+    num_classes = len(labels.unique())
     all_ids = np.arange(masks.shape[1])
     train_ids = all_ids[masks[0,:]]
     val_ids = all_ids[masks[0,:]]
@@ -110,10 +110,10 @@ def train_model(bs: int, num_sg: int):
     val_dataloader = _build_dataloader(val_ids)
     test_dataloader = _build_dataloader(test_ids)
 
-    criterion = CrossEntropyLoss(size=num_classes, reduction='sum').cuda()
+    criterion = CrossEntropyLoss(reduction='sum').cuda()
     model = make_model(feats.shape[1], num_classes, N=2).cuda() 
 
-    torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
+    torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6)
 
     optimizer = torch.optim.Adam(
         model.parameters(), lr=1.0, betas=(0.9, 0.98), eps=1e-9
@@ -136,7 +136,7 @@ def train_model(bs: int, num_sg: int):
         model.train()
         nbatches = train_ids.shape[0] // batch_size
         epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, feats, labels, device), model, 
-            SimpleLossCompute(model.generator, criterion))
+            SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
 
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)
@@ -150,3 +150,4 @@ def train_model(bs: int, num_sg: int):
                 checkpoint_model(model)
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
+train_model(32, 1)
