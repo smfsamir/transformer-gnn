@@ -5,7 +5,7 @@ import dgl
 from dgl.data import citation_graph as citegrh
 import torch
 from main_transformer import TransformerGraphBundleInput
-from typing import Iterator
+from typing import Iterator, Optional
 from torch.utils.tensorboard import SummaryWriter
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
@@ -16,7 +16,7 @@ from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
 def run_train_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, loss_compute: SimpleLossCompute):
     "Standard Training and Logging Function"
-    start = time.time()
+    start = time.perf_counter()
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
@@ -25,13 +25,13 @@ def run_train_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleIn
         # TODO: need to think about this loss computation carefully. Is it even possible?
         total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
-    elapsed = time.time() - start
+    elapsed = time.perf_counter() - start
     print(f"Train loss on epoch: {total_loss / ntokens}; time taken: {elapsed}")
     return total_loss / ntokens, elapsed
 
 def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder, \
                     loss_compute: SimpleLossCompute):
-    start = time.time()
+    start = time.perf_counter()
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
@@ -40,7 +40,7 @@ def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInp
         # TODO: need to think about this loss computation carefully. Is it even possible?
         total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
         ntokens += subgraph_bundle.ntokens 
-    elapsed = time.time() - start
+    elapsed = time.perf_counter() - start
     print(f"Validation loss on epoch: {total_loss / ntokens}")
     return total_loss / ntokens 
 
@@ -58,14 +58,14 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model(bs: int, num_sg: int):
+def train_model(bs: int, num_sg: int, desrd_val_loss: Optional[float] = None) -> None:
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
         bs (int): batch size
         num_sg (int): number of subgraphs. If 1, then no padding is done.
+        desrd_val_loss (Optional[float]): Target validation loss; benchmarked. 
     """
-
     data = citegrh.load_cora()
     features = data.features.clone().detach().to('cuda')
     labels = torch.tensor(data.labels, device=('cuda')) 
@@ -108,11 +108,13 @@ def train_model(bs: int, num_sg: int):
 
     tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
     tb_sw = SummaryWriter(tb_log_dir)
+    train_epoch_elapseds = []
     for nepoch in range(nepochs):
         model.train()
         nbatches = train_nids.shape[0] // batch_size
         epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
             SimpleLossCompute(model.generator, criterion, model_opt))
+        train_epoch_elapseds.append(train_epoch_elapsed)
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)
@@ -127,6 +129,10 @@ def train_model(bs: int, num_sg: int):
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
             
+            if (desrd_val_loss is not None) and  (validation_loss < desrd_val_loss): 
+                print(f"Time to target loss: {sum(train_epoch_elapseds)}")
+
+            
     print(f"Best validation epoch: {best_loss_epoch}")
     load_model(model) # mutation
     model.eval()
@@ -138,12 +144,14 @@ def train_model(bs: int, num_sg: int):
 
 
 def main(args):
-    train_model(args.bs, args.num_sg)
+    print(f"batch size {args.bs}; num subgraphs {args.num_sg}; target validation loss {args.des_validation_loss}")
+    train_model(args.bs, args.num_sg, args.des_validation_loss)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("bs", type=int)
     parser.add_argument("num_sg", type=int)
+    parser.add_argument("des_validation_loss", type=float)
 
     main(parser.parse_args())
