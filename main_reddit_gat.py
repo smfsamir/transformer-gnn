@@ -148,7 +148,7 @@ def train_model(bs: int, num_sg: int):
         model.eval()
         val_nbatches = val_ids.shape[0] // batch_size 
         with torch.no_grad():
-            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, val_nbatches, num_subgraphs, feats, labels, device), model, 
+            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, val_nbatches, num_subgraphs, feats, labels, max_graph_padding, device), model, 
                 SimpleLossCompute(model.generator, criterion))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
