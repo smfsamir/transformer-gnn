@@ -166,15 +166,18 @@ def evaluate_model(bs, num_subgraphs):
     test_ids = all_ids[masks[2,:]]
 
     graph = dgl.graph((adj_sparse.row, adj_sparse.col))
-    _build_dataloader = partial(build_dataloader, graph, bs, [5,5])
+    fanouts = [25,10]
+    _build_dataloader = partial(build_dataloader, graph, bs, fanouts)
     test_dataloader = _build_dataloader(test_ids)
     model = make_model(feats.shape[1], num_classes, N=2).cuda() 
     load_model(model) # mutation
     model.eval()
     device = 'cuda'
+    batch_size = bs
+    max_graph_padding = batch_size + batch_size * fanouts[0] + (batch_size + batch_size * fanouts[0]) * fanouts[1] 
     with torch.no_grad():
         test_nbatches = test_ids.shape[0] // bs 
-        test_acc = eval_accuracy(cora_data_gen(test_dataloader, test_nbatches, num_subgraphs, feats, labels, device), model)
+        test_acc = eval_accuracy(cora_data_gen(test_dataloader, test_nbatches, num_subgraphs, feats, labels, max_graph_padding, device), model)
     print(f"{test_acc:.3f}")
 
 
