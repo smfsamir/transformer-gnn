@@ -106,7 +106,8 @@ def train_model(bs: int, num_sg: int):
     test_ids = all_ids[masks[2,:]]
 
     graph = dgl.graph((adj_sparse.row, adj_sparse.col))
-    _build_dataloader = partial(build_dataloader, graph, bs, [5,5])
+    fanouts = [5,5]
+    _build_dataloader = partial(build_dataloader, graph, bs, fanouts)
 
     train_dataloader = _build_dataloader(train_ids)
     val_dataloader = _build_dataloader(val_ids)
@@ -135,10 +136,11 @@ def train_model(bs: int, num_sg: int):
     device= 'cuda'
     nepochs = 30
     best_loss = float('inf')
+    max_graph_padding = batch_size + batch_size * fanouts[0] + (batch_size + batch_size * fanouts[0]) * fanouts[1] 
     for nepoch in range(nepochs):
         model.train()
         train_nbatches = train_ids.shape[0] // batch_size
-        epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, train_nbatches, num_subgraphs, feats, labels, device), model, SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
+        epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, train_nbatches, num_subgraphs, feats, labels, max_graph_padding, device), model, SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
 
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)

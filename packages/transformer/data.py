@@ -74,14 +74,15 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
     minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, output_node_inds.shape[1], device)
     return minibatch
 
-def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, device: str) -> None: # WARNING: mutates graph bundle object
+def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, max_padding: int, device: str) -> None: # WARNING: mutates graph bundle object
     src_mask = graph_bundle.src_mask.squeeze(0) 
     size_subgraph = src_mask.shape[1]
-    padded_src_mask = torch.zeros((src_mask.shape[0], 512, 512), device=device)
+    padded_src_mask = torch.zeros((src_mask.shape[0], max_padding, max_padding), device=device)
     padded_src_mask[:, : size_subgraph, : size_subgraph] = src_mask
 
     src_feats = graph_bundle.src_feats.squeeze(0)
-    padded_src_feats = torch.zeros((512, src_feats.shape[-1]), device=device)
+    # TODO: just change the padded features...
+    padded_src_feats = torch.zeros((max_padding, src_feats.shape[-1]), device=device)
     padded_src_feats[: size_subgraph, :src_feats.shape[-1]] = src_feats
     graph_bundle.src_feats = padded_src_feats.unsqueeze(0)
     graph_bundle.src_mask = padded_src_mask.unsqueeze(0)
@@ -99,6 +100,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
                   num_subgraphs: int,
                   features: torch.Tensor, 
                   labels: torch.Tensor, 
+                  max_graph_padding: int,
                   device: str) -> TransformerGraphBundleInput:
     """Generate batches of cora datapoints one at a time, used for trainign and validation. Called once per epoch.
 
@@ -121,7 +123,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
             for batch_i in range(num_subgraphs):
                 input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
                 input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
-                pad_graph_bundle(input_graph_bundle, device) # mutation
+                pad_graph_bundle(input_graph_bundle, max_graph_padding, device) # mutation
                 graph_bundles.append(input_graph_bundle)
             batch_input_graph_bundle = stack_graph_bundles(graph_bundles)
             yield batch_input_graph_bundle 
