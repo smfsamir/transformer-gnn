@@ -5,6 +5,7 @@ from dgl.data import citation_graph as citegrh
 import torch
 from main_transformer import TransformerGraphBundleInput
 from typing import Iterator
+from torch.nn.parallel import DataParallel
 from torch.utils.tensorboard import SummaryWriter
 from packages.transformer.optimizer import *
 from packages.transformer.encoder_decoder import *
@@ -77,7 +78,9 @@ def train_model(bs: int, num_sg: int):
     device = 'cuda'
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
+    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2) # +1 for the padding index, though I don't think it's necessary.
+    model = DataParallel(model)
+    model = model.cuda()
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
