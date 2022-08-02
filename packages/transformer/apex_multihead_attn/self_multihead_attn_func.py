@@ -85,7 +85,10 @@ class SelfAttnFunc(torch.autograd.Function):
         if mask is not None:
             # Self Attention Time Mask
             if use_time_mask:
-                matmul1_results = matmul1_results.masked_fill((mask).unsqueeze(0) == 0, float("-inf"))
+                assert len(mask.size()) == 3, "Timing mask is not 2D!"
+                assert mask.size(-1) == mask.size(-2), "Sequence length should match!"
+                mask = mask.to(torch.bool)
+                matmul1_results = matmul1_results.masked_fill_(mask.unsqueeze(1), float("-inf"))
             # Key Padding Mask
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
@@ -244,7 +247,6 @@ class SelfAttnFunc(torch.autograd.Function):
         dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 1.0 / (1.0 - dropout_prob_t[0]))
 
         # Softmax Grad (not a publically documented op)
-        print(f"softmax_results shape: {softmax_results.shape}")
         softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results.dtype)
 
         # Matmul1 - DGRAD1

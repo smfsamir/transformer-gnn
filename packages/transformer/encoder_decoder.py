@@ -10,6 +10,7 @@ import numpy as np
 import copy
 import torch.nn.functional as F
 from torch.autograd import Variable
+from functools import partial
 
 from .attention import MultiHeadedAttention
 from .utils import batched_index_select
@@ -69,7 +70,7 @@ class Encoder(nn.Module):
         layer_i = 0
         for layer in self.layers:
             # x = layer(x, masks[:, layer_i, :, :])
-            x = layer(x, masks.squeeze(0)[layer_i, :, :] == 0)
+            x = layer(x, masks[:, layer_i, :, :] == 0)
             layer_i += 1
         return self.norm(x)
 
@@ -90,22 +91,26 @@ class SublayerConnection(nn.Module):
 
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
-    def __init__(self, size, self_attn, feed_forward, dropout):
+    def __init__(self, size, self_attn, feed_forward, dropout, use_apex_attn):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
         self.sublayer = clones(SublayerConnection(size, dropout), 2)
         self.size = size
+        self.use_apex_attn = use_apex_attn
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
-        # x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, attn_mask=mask)) 
-        def _self_attn(input_x):
-            input_x = input_x.transpose(1,0).contiguous()
-            res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
-            res = res.transpose(1,0).contiguous()
-            return res
-        x = self.sublayer[0](x, _self_attn) 
+        if self.use_apex_attn:
+            def _self_attn(input_x):
+                input_x = input_x.transpose(1,0).contiguous()
+                res = self.self_attn(input_x, input_x, input_x, attn_mask=mask)[0]
+                res = res.transpose(1,0).contiguous()
+                return res
+            x = self.sublayer[0](x, _self_attn) 
+        else: 
+            x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask=mask))
+        # x = self.sublayer[0](x, _self_attn) 
         return self.sublayer[1](x, self.feed_forward)
 
 class PositionwiseFeedForward(nn.Module):
@@ -137,16 +142,18 @@ class Embeddings(nn.Module):
     def forward(self, x):
         return self.lut(x) * math.sqrt(self.d_model)
 
-def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6, 
+def make_model(d_input: int, tgt_vocab: int , use_apex_attn: bool, N: Optional[int] = 6, 
                d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, separate_qkv_params=True, impl='default') # should bias be true? I think we essentially have it false.
-    # attn = MultiHeadedAttention(h, d_model)
+    if use_apex_attn:
+        attn = SelfMultiheadAttn(d_model, h, dropout=0.1, bias=True, separate_qkv_params=True, impl='default') # should bias be true? I think we essentially have it false.
+    else: 
+        attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
 
     model = EncoderDecoder(
-        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout, use_apex_attn), N),
         nn.Sequential(NodeEmbedding(d_model, d_input)),
         nn.Sequential(Embeddings(d_model, tgt_vocab)),
         Generator(d_model, tgt_vocab))

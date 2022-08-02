@@ -75,7 +75,7 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model(bs: int, num_sg: int):
+def train_model(bs: int, num_sg: int, use_apex_attn: bool):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
@@ -95,7 +95,7 @@ def train_model(bs: int, num_sg: int):
     device = 'cuda'
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
+    model = make_model(features.shape[1], len(labels.unique()) + 1, use_apex_attn, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1, betas=(0.9, 0.98), eps=1e-9)
 
@@ -163,10 +163,12 @@ def train_model(bs: int, num_sg: int):
     print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def main(args):
-    train_model(args.bs, args.num_sg)
+    train_model(args.bs, args.num_sg, args.use_apex_attn)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("bs", type=int)
     parser.add_argument("num_sg", type=int)
+    parser.add_argument("--use_apex_attn", action='store_true')
+    parser.set_defaults(use_apex_attn=False)
     main(parser.parse_args())
