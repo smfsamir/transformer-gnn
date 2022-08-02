@@ -15,11 +15,10 @@ from packages.transformer.encoder_decoder import *
 from packages.transformer.utils import conv_bool_mask_to_neg_infty
 from packages.transformer.data import TransformerGraphBundleInput, cora_data_gen, load_cora_data, test_cora_data_gen
 from packages.utils.checkpointing import load_model, checkpoint_model
-from packages.utils.inspect_attention import JacobianGAT, visualize_influence
 
 SCALER = torch.cuda.amp.grad_scaler.GradScaler()
 
-def run_epoch(
+def run_train_epoch(
     subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], 
     model: EncoderDecoder, 
     loss_compute: SimpleLossCompute,
@@ -76,7 +75,7 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model(bs: int):
+def train_model(bs: int, num_sg: int):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
@@ -85,14 +84,15 @@ def train_model(bs: int):
     """
 
     data = citegrh.load_cora()
-    features = torch.tensor(data.features, device='cuda')
-    labels = torch.tensor(data.labels, device='cuda')
+    features = data.features.clone().detach().to('cuda')
+    labels = torch.tensor(data.labels, device=('cuda')) 
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
     test_mask = torch.BoolTensor(data.test_mask)
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
     graph = dgl.graph((adj.row, adj.col)).to('cuda')
+    device = 'cuda'
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
     model = make_model(features.shape[1], len(labels.unique()) + 1, N=2).cuda() # +1 for the padding index, though I don't think it's necessary.
@@ -109,13 +109,35 @@ def train_model(bs: int):
 
     nepochs = 100
     best_loss = float("inf") 
+    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to(device)
+    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to(device)
+    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
+
+    sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
+    batch_size = bs 
+    train_dataloader = dgl.dataloading.DataLoader(
+        graph, train_nids, sampler,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=0, 
+        device=device)
+    val_dataloader = dgl.dataloading.DataLoader(
+        graph, val_nids, sampler,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=0, 
+        device=device)
+    num_subgraphs = num_sg
     best_loss_epoch = 0
-    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to('cuda')
-    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to('cuda')
-    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to('cuda')
+
+    tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
+    tb_sw = SummaryWriter(tb_log_dir)
     for nepoch in range(nepochs):
         model.train()
-        epoch_loss, train_epoch_elapsed = run_epoch(cora_data_gen(graph, train_nids, batch_size, features, labels), model, 
+        nbatches = train_nids.shape[0] // batch_size
+        epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
             SimpleLossCompute(model.generator, criterion), optimizer, lr_scheduler)
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
@@ -123,7 +145,7 @@ def train_model(bs: int):
         
         model.eval()
         with torch.no_grad():
-            validation_loss = run_eval_epoch(cora_data_gen(graph, val_nids, batch_size, features, labels), model, 
+            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
@@ -131,21 +153,20 @@ def train_model(bs: int):
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
             
+    print(f"Best validation epoch: {best_loss_epoch}")
     load_model(model) # mutation
     model.eval()
     with torch.no_grad():
         test_labels = labels[test_nids]
-        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels), model)
+        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels, device), model)
         tb_sw.add_scalar('Accuracy/test', test_acc)
     print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def main(args):
-    train_model(args.bs)
+    train_model(args.bs, args.num_sg)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("bs", type=int)
-    # parser.add_argument("num_sg", type=int)
-
-
+    parser.add_argument("num_sg", type=int)
     main(parser.parse_args())

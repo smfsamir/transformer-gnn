@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 from .attention import MultiHeadedAttention
-from .utils import conv_bool_mask_to_neg_infty
+from .utils import batched_index_select
 
 def clones(module, N):
     "Produce N identical layers."
@@ -42,7 +42,8 @@ class EncoderDecoder(nn.Module):
         """
         node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x B_in x D. But I really need to check this.
         batch_size = src.size(0)
-        return node_embeds[torch.arange(batch_size), train_inds] # should have shape B x B_out x D.
+        # return node_embeds[torch.arange(batch_size), train_inds] # should have shape B x B_out x D.
+        return batched_index_select(node_embeds, 1, train_inds)
 
 class Generator(nn.Module):
 
