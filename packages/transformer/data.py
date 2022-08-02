@@ -5,10 +5,6 @@ from dgl.data import citation_graph as citegrh
 import sys
 import numpy as np
 import torch
-<<<<<<< HEAD
-=======
-# from torch_sparse import spmm
->>>>>>> pack_batches
 
 from packages.utils.sp_utils import convert_scipy_sparse_to_torch, select_submatrix
 
@@ -118,46 +114,6 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
         TransformerGraphBundleInput: 
     """
     dataloader_iter = iter(dataloader)
-<<<<<<< HEAD
-    sparse_adj = convert_scipy_sparse_to_torch(graph.adj(scipy_fmt='coo'))
-
-    nbatches = len(train_nids) // batch_size
-    for _ in range(nbatches):
-        # TODO: must check that the node indices returned by the sampler align with those of the labels... 
-            # should be fine, I think. If nec, come back to this when the model actually runs... 
-        
-        input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
-        all_parallel_indices = torch.arange(input_nodes.shape[0], device='cuda')
-
-        src_inds_first_layer = (mfgs[0].srcdata[dgl.NID])
-        dst_inds_first_layer = (mfgs[0].dstdata[dgl.NID])
-        two_hop_neighbour_inds_argsort_inds = all_parallel_indices[dst_inds_first_layer.shape[0]:]
-        output_node_argsort_inds = all_parallel_indices[: output_nodes.shape[0]] # NOTE: is this an invariant form for DGL? It's probably not guaranteed 
-
-        first_layer_adj_submatrix = select_submatrix(sparse_adj, src_inds_first_layer, all_parallel_indices) # TODO: does this work?
-        first_layer_adj_submatrix = first_layer_adj_submatrix + torch.eye(first_layer_adj_submatrix.shape[0], device='cuda') # NOTE: adding self-connections.
-
-        second_layer_adj_submatrix = first_layer_adj_submatrix.detach().clone()
-        second_layer_adj_submatrix[:, two_hop_neighbour_inds_argsort_inds] = 0 
-        second_layer_adj_submatrix = second_layer_adj_submatrix + torch.eye(second_layer_adj_submatrix.shape[0], device='cuda') # NOTE: adding self-connections.
-        
-        minibatch_adjacencies = torch.stack((first_layer_adj_submatrix, second_layer_adj_submatrix))
-        all_minibatch_feats = retrieve_features_for_minibatch(src_inds_first_layer, features)
-
-        all_minibatch_feats = all_minibatch_feats.unsqueeze(0)
-        minibatch_adjacencies = minibatch_adjacencies.unsqueeze(0)
-        minibatch_labels = retrieve_labels_for_minibatch(output_nodes, labels).unsqueeze(0)
-        output_node_inds = output_node_argsort_inds.unsqueeze(0)
-
-        minibatch = TransformerGraphBundleInput(all_minibatch_feats, minibatch_labels, minibatch_adjacencies, output_node_inds, 'cuda')
-        yield minibatch
-
-def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor):
-    # TODO: forgetting self connections
-    adj_mat_layerwise = adj.expand(2,-1,-1) 
-    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), 'cuda')
-
-=======
     niters = nbatches // num_subgraphs
     for _ in range(niters):
         if num_subgraphs > 1:
@@ -178,7 +134,6 @@ def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: tor
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 
     return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), test_nids.shape[0], device)
->>>>>>> pack_batches
 
 def load_cora_data():
     data = citegrh.load_cora()
