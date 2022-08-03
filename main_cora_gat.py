@@ -66,7 +66,7 @@ def get_input_output_dims():
     data = citegrh.load_cora()
     return data.features.shape[1], len(torch.tensor(data.labels).unique())
 
-def train_model(model):
+def train_model(model, gpu):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
@@ -75,17 +75,17 @@ def train_model(model):
     """
 
     data = citegrh.load_cora()
-    features = data.features.clone().detach().to('cuda')
-    labels = torch.tensor(data.labels, device=('cuda')) 
+    features = data.features.clone().detach().to(gpu)
+    labels = torch.tensor(data.labels, device=(gpu)) 
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
     test_mask = torch.BoolTensor(data.test_mask)
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
-    graph = dgl.graph((adj.row, adj.col)).to('cuda')
-    device = 'cuda'
+    graph = dgl.graph((adj.row, adj.col)).to(gpu)
+    device = gpu
 
-    criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
+    criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).to(device)
     model_opt = NoamOpt(model.module.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
@@ -155,7 +155,7 @@ def main_proc(rank, world_size):
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # TODO: call train_model
-    train_model(model)
+    train_model(model, rank)
 
 def main_global(args):
     world_size = args.num_gpus
