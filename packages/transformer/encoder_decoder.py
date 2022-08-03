@@ -20,11 +20,10 @@ class EncoderDecoder(nn.Module):
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
     """
-    def __init__(self, encoder, src_embed, tgt_embed, generator):
+    def __init__(self, encoder, src_embed, generator):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
         self.src_embed = src_embed
-        self.tgt_embed = tgt_embed
         self.generator = generator
         
     def forward(self, src: torch.Tensor, src_mask: torch.Tensor, train_inds: Optional[torch.Tensor] = None):
@@ -135,7 +134,6 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
     model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         nn.Sequential(NodeEmbedding(d_model, d_input)),
-        nn.Sequential(Embeddings(d_model, tgt_vocab)),
         Generator(d_model, tgt_vocab))
     
     for p in model.parameters():
