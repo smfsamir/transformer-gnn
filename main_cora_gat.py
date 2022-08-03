@@ -110,7 +110,7 @@ def train_model(model, gpu):
         drop_last=True,
         num_workers=0 
         )
-    num_subgraphs = 1
+    num_subgraphs = 2
     best_loss_epoch = 0
 
     tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
