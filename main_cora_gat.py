@@ -51,8 +51,8 @@ def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInp
 def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder):
     total = 0
     num_correct = 0 
-    out = model.forward(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds) # B x B_out x model_D.  
-    out = model.generator(out) # B x num_nodes x num_classes
+    out = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds) # B x B_out x model_D.  
+    out = model.module.generator(out) # B x num_nodes x num_classes
     out = out.squeeze(0) # num_nodes x num_classes
     out = out.argmax(axis=1) # num_nodes
     mb_test_labels = graph_bundle.trg_labels.squeeze(0)
@@ -134,14 +134,14 @@ def train_model(model, gpu):
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
             
-    # print(f"Best validation epoch: {best_loss_epoch}")
-    # load_model(model) # mutation
-    # model.eval()
-    # with torch.no_grad():
-    #     test_labels = labels[test_nids]
-    #     test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels, device), model)
-    #     tb_sw.add_scalar('Accuracy/test', test_acc)
-    # print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
+    print(f"Best validation epoch: {best_loss_epoch}")
+    load_model(model) # mutation
+    model.eval()
+    with torch.no_grad():
+        test_labels = labels[test_nids]
+        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().to(device) + torch.eye(adj.shape[0]).to(device), features, test_nids, test_labels, device), model)
+        tb_sw.add_scalar('Accuracy/test', test_acc)
+    print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = 'localhost'
