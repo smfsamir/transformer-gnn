@@ -87,13 +87,13 @@ def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, max_padding: int
     graph_bundle.src_feats = padded_src_feats.unsqueeze(0)
     graph_bundle.src_mask = padded_src_mask.unsqueeze(0)
 
-def stack_graph_bundles(graph_bundles: List[TransformerGraphBundleInput]) -> TransformerGraphBundleInput:
+def stack_graph_bundles(graph_bundles: List[TransformerGraphBundleInput], device) -> TransformerGraphBundleInput:
     src_masks = torch.cat([graph_bundle.src_mask for graph_bundle in graph_bundles])
     src_feats = torch.cat([graph_bundle.src_feats for graph_bundle in graph_bundles])
     trg_labels = torch.cat([graph_bundle.trg_labels for graph_bundle in graph_bundles])
     train_inds = torch.cat([graph_bundle.train_inds for graph_bundle in graph_bundles])
     ntokens = sum([graph_bundle.ntokens for graph_bundle in graph_bundles])
-    return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, ntokens, 'cuda')
+    return TransformerGraphBundleInput(src_feats, trg_labels, src_masks, train_inds, ntokens, device)
 
 def cora_data_gen(dataloader: dgl.dataloading.DataLoader, 
                   nbatches: int,
@@ -101,7 +101,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
                   features: torch.Tensor, 
                   labels: torch.Tensor, 
                   max_graph_padding: int,
-                  device: str) -> TransformerGraphBundleInput:
+                  device: int) -> TransformerGraphBundleInput:
     """Generate batches of cora datapoints one at a time, used for trainign and validation. Called once per epoch.
 
     Args:
@@ -111,6 +111,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
         batch_size (int): Number of datapoints in the batch.
         features (torch.Tensor): The features for all the data.
         labels (torch.Tensor): The labels for all the data.
+        device (int): Which GPU to use.
 
     Returns:
         TransformerGraphBundleInput: 
@@ -125,7 +126,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
                 input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
                 pad_graph_bundle(input_graph_bundle, max_graph_padding, device) # mutation
                 graph_bundles.append(input_graph_bundle)
-            batch_input_graph_bundle = stack_graph_bundles(graph_bundles)
+            batch_input_graph_bundle = stack_graph_bundles(graph_bundles, device)
             yield batch_input_graph_bundle 
         else: 
             input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask

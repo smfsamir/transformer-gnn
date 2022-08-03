@@ -83,10 +83,11 @@ class SelfAttnFunc(torch.autograd.Function):
         if mask is not None:
             # Self Attention Time Mask
             if use_time_mask:
-                assert len(mask.size()) == 2, "Timing mask is not 2D!"
-                assert mask.size(0) == mask.size(1), "Sequence length should match!"
-                mask = mask.to(torch.bool)
-                matmul1_results = matmul1_results.masked_fill_(mask, float("-inf"))
+                # assert len(mask.size()) == 2, "Timing mask is not 2D!"
+                # assert mask.size(0) == mask.size(1), "Sequence length should match!"
+                # mask = mask.to(torch.bool)
+                # matmul1_results = matmul1_results.masked_fill_(mask, float("-inf"))
+                matmul1_results = matmul1_results.masked_fill((mask).unsqueeze(1) == 0, float("-inf"))
             # Key Padding Mask
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
