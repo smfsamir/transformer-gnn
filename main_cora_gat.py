@@ -1,8 +1,12 @@
 from argparse import ArgumentParser
 import time
+import torch.multiprocessing as mp
+import torch.distributed as dist
+import os
 import dgl
 from dgl.data import citation_graph as citegrh
 import torch
+from torch.nn.parallel import DistributedDataParallel as DDP
 from main_transformer import TransformerGraphBundleInput
 from typing import Iterator
 from torch.nn.parallel import DataParallel
@@ -20,7 +24,7 @@ def run_train_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleIn
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
-        out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
+        out = model(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                             subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
         total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
@@ -35,7 +39,7 @@ def run_eval_epoch(subgraph_bundle_generator: Iterator[TransformerGraphBundleInp
     total_loss = 0
     ntokens = 0
     for subgraph_bundle in subgraph_bundle_generator: 
-        out = model.forward(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
+        out = model(subgraph_bundle.src_feats, subgraph_bundle.src_mask,  
                             subgraph_bundle.train_inds) # B x B_out x model_D.  
         # TODO: need to think about this loss computation carefully. Is it even possible?
         total_loss += loss_compute(out, subgraph_bundle.trg_labels, subgraph_bundle.ntokens)
@@ -58,7 +62,11 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def train_model(bs: int, num_sg: int):
+def get_input_output_dims():
+    data = citegrh.load_cora()
+    return data.features.shape[1], len(torch.tensor(data.labels).unique())
+
+def train_model(model):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
@@ -78,10 +86,7 @@ def train_model(bs: int, num_sg: int):
     device = 'cuda'
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).cuda()
-    model = make_model(features.shape[1], len(labels.unique()) + 1, N=2) # +1 for the padding index, though I don't think it's necessary.
-    model = DataParallel(model)
-    model = model.cuda()
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
+    model_opt = NoamOpt(model.module.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
     best_loss = float("inf") 
@@ -90,22 +95,22 @@ def train_model(bs: int, num_sg: int):
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    batch_size = bs 
+    batch_size = 32
     train_dataloader = dgl.dataloading.DataLoader(
         graph, train_nids, sampler,
         batch_size=batch_size,
         shuffle=True,
         drop_last=True,
-        num_workers=0, 
-        device=device)
+        num_workers=0 
+        )
     val_dataloader = dgl.dataloading.DataLoader(
         graph, val_nids, sampler,
         batch_size=batch_size,
         shuffle=True,
         drop_last=True,
-        num_workers=0, 
-        device=device)
-    num_subgraphs = num_sg
+        num_workers=0 
+        )
+    num_subgraphs = 1
     best_loss_epoch = 0
 
     tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
@@ -114,7 +119,7 @@ def train_model(bs: int, num_sg: int):
         model.train()
         nbatches = train_nids.shape[0] // batch_size
         epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
-            SimpleLossCompute(model.generator, criterion, model_opt))
+            SimpleLossCompute(model.module.generator, criterion, model_opt))
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)
@@ -122,30 +127,45 @@ def train_model(bs: int, num_sg: int):
         model.eval()
         with torch.no_grad():
             validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
-                SimpleLossCompute(model.generator, criterion, None))
+                SimpleLossCompute(model.module.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
                 checkpoint_model(model)
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
             
-    print(f"Best validation epoch: {best_loss_epoch}")
-    load_model(model) # mutation
-    model.eval()
-    with torch.no_grad():
-        test_labels = labels[test_nids]
-        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels, device), model)
-        tb_sw.add_scalar('Accuracy/test', test_acc)
-    print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
+    # print(f"Best validation epoch: {best_loss_epoch}")
+    # load_model(model) # mutation
+    # model.eval()
+    # with torch.no_grad():
+    #     test_labels = labels[test_nids]
+    #     test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().cuda() + torch.eye(adj.shape[0], device='cuda'), features, test_nids, test_labels, device), model)
+    #     tb_sw.add_scalar('Accuracy/test', test_acc)
+    # print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
+def setup(rank, world_size):
+    os.environ["MASTER_ADDR"] = 'localhost'
+    os.environ["MASTER_PORT"] = '12355'
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-def main(args):
-    train_model(args.bs, args.num_sg)
+def main_proc(rank, world_size):
+    setup(rank, world_size)
+    input_dim, output_num_classes = get_input_output_dims() 
+    model = make_model(input_dim, output_num_classes + 1, N=2).to(rank) # +1 for the padding index, though I don't think it's necessary.
+    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
+
+    # TODO: call train_model
+    train_model(model)
+
+def main_global(args):
+    world_size = args.num_gpus
+    mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("bs", type=int)
-    parser.add_argument("num_sg", type=int)
+    # parser.add_argument("bs", type=int)
+    # parser.add_argument("num_sg", type=int)
+    parser.add_argument("num_gpus", type=int)
 
-    main(parser.parse_args())
+    main_global(parser.parse_args())
