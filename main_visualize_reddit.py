@@ -42,17 +42,25 @@ dataloader_iter = iter(train_dataloader)
 
 target_num_embeddings = 1024
 embeddings = []
+subset_labels = []
 max_graph_padding = bs + bs * fanouts[0] + (bs + bs * fanouts[0]) * fanouts[1] 
 
 nbatches = target_num_embeddings // bs
 device = 'cuda'
 model.eval()
 max_graph_padding = bs + bs * fanouts[0] + (bs + bs * fanouts[0]) * fanouts[1] 
+
 with torch.no_grad():
     for graph_bundle in cora_data_gen(train_dataloader, nbatches, 1, feats, labels, max_graph_padding, device):
         out_embeds = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds)
+        out_labels = graph_bundle.trg_labels 
         embeddings.append(out_embeds)
+        subset_labels.append(out_labels)
 
 all_embeds = torch.concat(embeddings).cpu().detach().numpy()
+all_labels = torch.concat(subset_labels).cpu().detach().numpy()
 with open('reddit_vis_embeds.npy', 'wb') as f:
     np.save(f, all_embeds)
+
+with open('reddit_vis_labels.npy', 'wb') as f:
+    np.save(f, all_labels)
