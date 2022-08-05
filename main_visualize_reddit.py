@@ -52,8 +52,8 @@ max_graph_padding = bs + bs * fanouts[0] + (bs + bs * fanouts[0]) * fanouts[1]
 
 with torch.no_grad():
     for graph_bundle in cora_data_gen(train_dataloader, nbatches, 1, feats, labels, max_graph_padding, device):
-        out_embeds = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds)
-        out_labels = graph_bundle.trg_labels 
+        out_embeds = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds).squeeze(0)
+        out_labels = graph_bundle.trg_labels.squeeze(0) 
         embeddings.append(out_embeds)
         subset_labels.append(out_labels)
 
