@@ -53,6 +53,6 @@ with torch.no_grad():
         out_embeds = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds)
         embeddings.append(out_embeds)
 
-all_embeds = torch.concat(embeddings).detach().numpy()
+all_embeds = torch.concat(embeddings).cpu().detach().numpy()
 with open('reddit_vis_embeds.npy', 'wb') as f:
     np.save(f, all_embeds)
