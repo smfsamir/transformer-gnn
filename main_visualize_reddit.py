@@ -21,7 +21,7 @@ masks = load_reddit_masks()
 labels = load_reddit_labels()
 graph = dgl.graph((adj_sparse.row, adj_sparse.col))
 
-model = make_model(feats.shape[1], len(torch.tensor(labels).unique()), N=2)
+model = make_model(feats.shape[1], len(torch.tensor(labels).unique()), N=2).cuda()
 load_ddp_model(model, path="checkpoints")
 all_ids = np.arange(masks.shape[1])
 train_ids = all_ids[masks[0,:]]
