@@ -95,7 +95,7 @@ def train_model(model, gpu):
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    batch_size = bs 
+    batch_size = 32
     train_dataloader = dgl.dataloading.DataLoader(
         graph, train_nids, sampler,
         batch_size=batch_size,
@@ -148,7 +148,7 @@ def setup(rank, world_size):
     os.environ["MASTER_PORT"] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-def main_proc(rank, world_size):
+def main_proc_ddp(rank, world_size):
     setup(rank, world_size)
     input_dim, output_num_classes = get_input_output_dims() 
     model = make_model(input_dim, output_num_classes + 1, N=2).to(rank) # +1 for the padding index, though I don't think it's necessary.
@@ -158,13 +158,19 @@ def main_proc(rank, world_size):
     train_model(model, rank)
 
 def main_global(args):
-    world_size = args.num_gpus
-    mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
+    if args.use_ddp:
+        world_size = args.num_gpus
+        mp.spawn(main_proc_ddp, args=(world_size, ), nprocs = world_size, join=True)
+    else:
+        print("Not using DDP")
+        input_dim, output_num_classes = get_input_output_dims() 
+        model = make_model(input_dim, output_num_classes + 1, N=2).to(0) # +1 for the padding index, though I don't think it's necessary.
+        train_model(model, 0)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     # parser.add_argument("bs", type=int)
     # parser.add_argument("num_sg", type=int)
+    parser.add_argument("--use_ddp", action='store_true')
     parser.add_argument("num_gpus", type=int)
-
     main_global(parser.parse_args())
