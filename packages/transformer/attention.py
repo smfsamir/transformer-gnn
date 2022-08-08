@@ -6,6 +6,8 @@ import math
 import copy
 import pdb
 
+from packages.efficient_attention.attention_torch import efficient_dot_product_attention
+
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
@@ -53,15 +55,15 @@ class MultiHeadedAttention(nn.Module):
         # 1) Do all the linear projections in batch from d_model => h x d_k 
 
         query, key, value = \
-            [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+            [l(x).view(nbatches, -1, self.h, self.d_k)
              for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
         
         # 2) Apply attention on all the projected vectors in batch. 
-        x, self.attn = attention(query, key, value, mask=mask, 
+        x = efficient_dot_product_attention(query, key, value, mask=mask, 
                                  dropout=self.dropout)
         
         # 3) "Concat" using a view and apply a final linear. 
-        x = x.transpose(1, 2).contiguous() \
+        x = x.contiguous() \
              .view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
