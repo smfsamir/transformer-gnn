@@ -110,7 +110,7 @@ def train_model(model, gpu):
         drop_last=True,
         num_workers=0 
         )
-    num_subgraphs = 2
+    num_subgraphs = 1
     best_loss_epoch = 0
 
     tb_log_dir = f"runs/batch-{batch_size}_num_sg-{num_subgraphs}"
@@ -118,7 +118,7 @@ def train_model(model, gpu):
     for nepoch in range(nepochs):
         model.train()
         nbatches = train_nids.shape[0] // batch_size
-        epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
+        epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, 512, device), model, 
             SimpleLossCompute(model.generator, criterion, model_opt))
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
@@ -126,7 +126,7 @@ def train_model(model, gpu):
         
         model.eval()
         with torch.no_grad():
-            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
+            validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, 512, device), model, 
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
