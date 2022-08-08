@@ -4,6 +4,7 @@ from torch import nn
 import torch.nn.functional as F
 import math
 import copy
+import pdb
 
 def clones(module, N):
     "Produce N identical layers."
@@ -35,6 +36,7 @@ class MultiHeadedAttention(nn.Module):
 
         # if mask is not None: 
         #     mask = mask.unsqueeze(1) # NOTE: we shouldn't need to do this anymore, since our mask will become a 3D tensor :)
+        pdb.set_trace()
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 

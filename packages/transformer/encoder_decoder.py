@@ -38,7 +38,6 @@ class EncoderDecoder(nn.Module):
         """
         node_embeds = self.encoder(self.src_embed(src), src_mask) # should have shape B x B_in x D. But I really need to check this.
         batch_size = src.size(0)
-        print(f"Processing subgraph of size: {batch_size}")
         # return node_embeds[torch.arange(batch_size), train_inds] # should have shape B x B_out x D.
         return batched_index_select(node_embeds, 1, train_inds)
 
