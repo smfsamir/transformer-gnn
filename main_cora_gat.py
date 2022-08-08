@@ -52,7 +52,7 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     total = 0
     num_correct = 0 
     out = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds) # B x B_out x model_D.  
-    out = model.module.generator(out) # B x num_nodes x num_classes
+    out = model.generator(out) # B x num_nodes x num_classes
     out = out.squeeze(0) # num_nodes x num_classes
     out = out.argmax(axis=1) # num_nodes
     mb_test_labels = graph_bundle.trg_labels.squeeze(0)
@@ -86,7 +86,7 @@ def train_model(model, gpu):
     device = gpu
 
     criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).to(device)
-    model_opt = NoamOpt(model.module.src_embed[0].d_model, 1, 400,
+    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
     best_loss = float("inf") 
@@ -119,7 +119,7 @@ def train_model(model, gpu):
         model.train()
         nbatches = train_nids.shape[0] // batch_size
         epoch_loss, train_epoch_elapsed  = run_train_epoch(cora_data_gen(train_dataloader, nbatches, num_subgraphs, features, labels, device), model, 
-            SimpleLossCompute(model.module.generator, criterion, model_opt))
+            SimpleLossCompute(model.generator, criterion, model_opt))
         
         tb_sw.add_scalar('Loss/train', epoch_loss, nepoch)
         tb_sw.add_scalar('Duration/train', train_epoch_elapsed, nepoch)
@@ -127,7 +127,7 @@ def train_model(model, gpu):
         model.eval()
         with torch.no_grad():
             validation_loss = run_eval_epoch(cora_data_gen(val_dataloader, nbatches, 1, features, labels, device), model, 
-                SimpleLossCompute(model.module.generator, criterion, None))
+                SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
                 checkpoint_model(model)
