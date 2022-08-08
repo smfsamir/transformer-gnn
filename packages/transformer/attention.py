@@ -25,6 +25,17 @@ class MultiHeadedAttention(nn.Module):
         
     # TODO: assuming the dimensions will work out here -- i.e., that minibatching works. Will confirm later.
     def forward(self, query, key, value, mask=None):
+        """_summary_
+
+        Args:
+            query (_type_): B x S x D
+            key (_type_): B x S x D
+            value (_type_): B x S x D
+            mask (_type_, optional): B x S x S.
+
+        Returns:
+            _type_: _description_
+        """
         "Implements Figure 2"
         # assert len(query.shape) == 3
         # assert len(key.shape) == 3
@@ -40,9 +51,10 @@ class MultiHeadedAttention(nn.Module):
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 
+
         query, key, value = \
             [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-             for l, x in zip(self.linears, (query, key, value))]
+             for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
         
         # 2) Apply attention on all the projected vectors in batch. 
         x, self.attn = attention(query, key, value, mask=mask, 
@@ -57,10 +69,10 @@ def attention(query, key, value, mask=None, dropout=None):
     """TODO: what are the shapes of these?
 
     Args:
-        query (_type_): _description_
-        key (_type_): _description_
-        value (_type_): _description_
-        mask (_type_, optional): _description_. Defaults to None. TODO: what is the shape of the sparse matrix?
+        query (_type_): B x H x S x D
+        key (_type_): B x H x S x D
+        value (_type_): B x H x S x D
+        mask (_type_, optional): B x S x S
         dropout (_type_, optional): _description_. Defaults to None.
 
     Returns:
