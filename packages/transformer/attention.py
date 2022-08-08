@@ -1,3 +1,4 @@
+import numpy as np
 import sys
 import torch
 from torch import nn
@@ -59,7 +60,8 @@ class MultiHeadedAttention(nn.Module):
              for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
         
         # 2) Apply attention on all the projected vectors in batch. 
-        x = efficient_dot_product_attention(query, key, value, mask=mask)
+        key_chunk_size = round(np.sqrt(query.shape[-2]))
+        x = efficient_dot_product_attention(query, key, value, query_chunk_size = 128, key_chunk_size=key_chunk_size, mask=mask)
         assert query.shape == x.shape
         
         # 3) "Concat" using a view and apply a final linear. 
