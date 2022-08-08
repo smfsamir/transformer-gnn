@@ -134,7 +134,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 
-    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0), test_nids.unsqueeze(0), test_nids.shape[0], device)
+    return TransformerGraphBundleInput(features.unsqueeze(0), labels.unsqueeze(0), adj_mat_layerwise.unsqueeze(0) == 1, test_nids.unsqueeze(0), test_nids.shape[0], device)
 
 def load_cora_data():
     data = citegrh.load_cora()

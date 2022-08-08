@@ -49,7 +49,7 @@ class MultiHeadedAttention(nn.Module):
 
         # if mask is not None: 
         #     mask = mask.unsqueeze(1) # NOTE: we shouldn't need to do this anymore, since our mask will become a 3D tensor :)
-        pdb.set_trace()
+        orig_shape = query.shape
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 
@@ -59,13 +59,14 @@ class MultiHeadedAttention(nn.Module):
              for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
         
         # 2) Apply attention on all the projected vectors in batch. 
-        x = efficient_dot_product_attention(query, key, value, mask=mask, 
-                                 dropout=self.dropout)
+        x = efficient_dot_product_attention(query, key, value, mask=mask)
+        assert query.shape == x.shape
         
         # 3) "Concat" using a view and apply a final linear. 
         x = x.contiguous() \
              .view(nbatches, -1, self.h * self.d_k)
-        return self.linears[-1](x)
+        res = self.linears[-1](x)
+        return res
 
 def attention(query, key, value, mask=None, dropout=None):
     """TODO: what are the shapes of these?
