@@ -1,3 +1,4 @@
+import pdb
 import torch
 from torch.utils.checkpoint import checkpoint
 from .utils import dynamic_slice, map_pt, scan
@@ -131,9 +132,10 @@ def efficient_dot_product_attention(query, key, value,
     num_q, num_heads, q_features = query.shape[-3:]
     num_kv = key.shape[-3]
 
+    actual_chunk_size = min(query_chunk_size, num_q)
     def chunk_scanner(chunk_idx, _):
         query_chunk = dynamic_slice(query, tuple([0] * (query.ndim - 3)) + (chunk_idx, 0, 0),
-                                    tuple(query.shape[:-3]) + (min(query_chunk_size, num_q), num_heads, q_features))
+                                    tuple(query.shape[:-3]) + (actual_chunk_size, num_heads, q_features))
 
         if mask is None:
             mask_chunk = None
@@ -141,7 +143,9 @@ def efficient_dot_product_attention(query, key, value,
             mask_chunk = mask
         elif mask.shape[-2] == num_q:
             mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, chunk_idx, 0),
-                                       tuple(mask.shape[:-3]) + (mask.shape[-3], min(query_chunk_size, num_q), mask.shape[-1]))
+                                       tuple(mask.shape[:-3]) + (mask.shape[-3], actual_chunk_size, mask.shape[-1]))
+
+            assert mask_chunk.shape[-2] == (actual_chunk_size) # gets the query chunk. The key scanner will get the other chunk.
         else:
             raise TypeError(f'mask.shape[-2] == {mask.shape[-2]} must broadcast with query.shape[-3] == {num_q}')
 
@@ -151,7 +155,7 @@ def efficient_dot_product_attention(query, key, value,
             bias_chunk = bias
         elif bias.shape[-2] == num_q:
             bias_chunk = dynamic_slice(bias, tuple([0] * (bias.ndim - 3)) + (0, chunk_idx, 0),
-                                       tuple(bias.shape[:-3]) + (bias.shape[-3], min(query_chunk_size, num_q), bias.shape[-1]))
+                                       tuple(bias.shape[:-3]) + (bias.shape[-3], actual_chunk_size, bias.shape[-1]))
         else:
             raise TypeError(f'bias.shape[-2] == {bias.shape[-2]} must broadcast with query.shape[-3] == {num_q}')
         return (chunk_idx + query_chunk_size,
@@ -159,6 +163,6 @@ def efficient_dot_product_attention(query, key, value,
                                        bias_calc_fn=bias_calc_fn, mask_calc_fn=mask_calc_fn,
                                        weights_calc_fn=weights_calc_fn, calc_fn_data=calc_fn_data))
 
-    _, res = scan(chunk_scanner, init=0, xs=None, length=math.ceil(num_q / query_chunk_size))
+    _, res = scan(chunk_scanner, init=0, xs=None, length=math.ceil(num_q / actual_chunk_size)) # TODO: this could be the line that has me fucked up. 
     rl = [res[i] for i in range(res.shape[0])]
     return torch.cat(rl, dim=-3)

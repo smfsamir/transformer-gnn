@@ -62,6 +62,20 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
+def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder):
+    total = 0
+    num_correct = 0 
+    out = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds) # B x B_out x model_D.  
+    out = model.generator(out) # B x num_nodes x num_classes
+    out = out.squeeze(0) # num_nodes x num_classes
+    out = out.argmax(axis=1) # num_nodes
+    mb_test_labels = graph_bundle.trg_labels.squeeze(0)
+    total += mb_test_labels.shape[0]
+    num_correct += (out == mb_test_labels).sum()
+    test_accuracy = num_correct / total
+    print(test_accuracy)
+    return test_accuracy
+
 def get_input_output_dims():
     data = citegrh.load_cora()
     return data.features.shape[1], len(torch.tensor(data.labels).unique())
@@ -134,14 +148,14 @@ def train_model(model, gpu):
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
             
-    print(f"Best validation epoch: {best_loss_epoch}")
-    load_model(model) # mutation
-    model.eval()
-    with torch.no_grad():
-        test_labels = labels[test_nids]
-        test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().to(device) + torch.eye(adj.shape[0]).to(device), features, test_nids, test_labels, device), model)
-        tb_sw.add_scalar('Accuracy/test', test_acc)
-    print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
+    # print(f"Best validation epoch: {best_loss_epoch}")
+    # load_model(model) # mutation
+    # model.eval()
+    # with torch.no_grad():
+    #     test_labels = labels[test_nids]
+    #     test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().to(device) + torch.eye(adj.shape[0]).to(device), features, test_nids, test_labels, device), model)
+    #     tb_sw.add_scalar('Accuracy/test', test_acc)
+    # print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
 
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = 'localhost'
@@ -163,7 +177,6 @@ def main_global(args):
     train_model(model, 0)
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
-
 
 if __name__ == "__main__":
     parser = ArgumentParser()

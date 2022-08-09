@@ -77,11 +77,11 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
 def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, device: str) -> None: # WARNING: mutates graph bundle object
     src_mask = graph_bundle.src_mask.squeeze(0) 
     size_subgraph = src_mask.shape[1]
-    padded_src_mask = torch.zeros((src_mask.shape[0], 512, 512), device=device)
+    padded_src_mask = torch.zeros((src_mask.shape[0], 1156, 1156), device=device)
     padded_src_mask[:, : size_subgraph, : size_subgraph] = src_mask
 
     src_feats = graph_bundle.src_feats.squeeze(0)
-    padded_src_feats = torch.zeros((512, src_feats.shape[-1]), device=device)
+    padded_src_feats = torch.zeros((1156, src_feats.shape[-1]), device=device)
     padded_src_feats[: size_subgraph, :src_feats.shape[-1]] = src_feats
     graph_bundle.src_feats = padded_src_feats.unsqueeze(0)
     graph_bundle.src_mask = padded_src_mask.unsqueeze(0)
@@ -129,6 +129,7 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
         else: 
             input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
             input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
+            pad_graph_bundle(input_graph_bundle, device) # mutation
             yield input_graph_bundle
 
 

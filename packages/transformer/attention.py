@@ -51,7 +51,6 @@ class MultiHeadedAttention(nn.Module):
         # if mask is not None: 
         #     mask = mask.unsqueeze(1) # NOTE: we shouldn't need to do this anymore, since our mask will become a 3D tensor :)
         key_chunk_size = round(np.sqrt(query.shape[-2]))
-        orig_shape = query.shape
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 
@@ -61,8 +60,8 @@ class MultiHeadedAttention(nn.Module):
              for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
         
         # 2) Apply attention on all the projected vectors in batch. 
-        expanded_mask = mask.expand(mask.shape[0], self.h, -1,-1)
-        x = efficient_dot_product_attention(query, key, value, query_chunk_size = 128, key_chunk_size=key_chunk_size, mask=expanded_mask)
+        expanded_mask = mask.expand(mask.shape[0], self.h, -1,-1) == 1 
+        x = efficient_dot_product_attention(query, key, value, query_chunk_size = key_chunk_size, key_chunk_size=key_chunk_size, mask=expanded_mask)
         assert query.shape == x.shape, f"Query shape is {query.shape} but result shape is {x.shape}"
         
         # 3) "Concat" using a view and apply a final linear. 
