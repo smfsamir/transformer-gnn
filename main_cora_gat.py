@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from typing import Optional, List
 import time
 import torch.multiprocessing as mp
 import torch.distributed as dist
@@ -62,19 +63,27 @@ def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecod
     print(test_accuracy)
     return test_accuracy
 
-def eval_accuracy(graph_bundle: TransformerGraphBundleInput, model: EncoderDecoder):
+def eval_accuracy_mb(subgraph_bundle_generator: Iterator[TransformerGraphBundleInput], model: EncoderDecoder):
     total = 0
     num_correct = 0 
-    out = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds) # B x B_out x model_D.  
-    out = model.generator(out) # B x num_nodes x num_classes
-    out = out.squeeze(0) # num_nodes x num_classes
-    out = out.argmax(axis=1) # num_nodes
-    mb_test_labels = graph_bundle.trg_labels.squeeze(0)
-    total += mb_test_labels.shape[0]
-    num_correct += (out == mb_test_labels).sum()
+    predictions = []
+    test_labels = []
+    for graph_bundle in subgraph_bundle_generator:
+        out = model(graph_bundle.src_feats, graph_bundle.src_mask, graph_bundle.train_inds)
+        out = model.generator(out) # B x num_nodes x num_classes
+        out = out.squeeze(0) # num_nodes x num_classes
+        out = out.argmax(axis=1) # num_nodes
+        predictions.append(out)
+        mb_test_labels = graph_bundle.trg_labels.squeeze(0)
+        test_labels.append(mb_test_labels)
+    predictions = torch.cat(predictions)
+    test_labels = torch.cat(test_labels)
+    num_correct = sum(predictions == test_labels)
+    total = len(test_labels)
     test_accuracy = num_correct / total
     print(test_accuracy)
     return test_accuracy
+
 
 def get_input_output_dims():
     data = citegrh.load_cora()
@@ -171,10 +180,48 @@ def main_proc(rank, world_size):
     # TODO: call train_model
     train_model(model, rank)
 
-def main_global(args):
+def build_dataloader(graph: dgl.DGLHeteroGraph, bs: int, fanouts: List[int], ids: torch.tensor):
+    sampler = dgl.dataloading.MultiLayerNeighborSampler(fanouts)
+    dataloader = dgl.dataloading.DataLoader(
+        graph, ids, sampler,
+        batch_size=bs,
+        shuffle=True,
+        drop_last=True
+    )
+    return dataloader
+
+
+def evaluate_model(gpu):
+    data = citegrh.load_cora()
+    bs = 32
+    features = data.features.clone().detach().to(gpu)
+    labels = torch.tensor(data.labels, device=(gpu)) 
+    train_mask = torch.BoolTensor(data.train_mask)
+    val_mask = torch.BoolTensor(data.val_mask)
+    test_mask = torch.BoolTensor(data.test_mask)
+    graph = data[0]
+    adj = graph.adj(scipy_fmt='coo')
+    graph = dgl.graph((adj.row, adj.col)).to(gpu)
+
+    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(gpu)
+    test_dataloader = build_dataloader(graph, 32, [5,5], test_nids)
     input_dim, output_num_classes = get_input_output_dims() 
     model = make_model(input_dim, output_num_classes + 1, N=2).to(0) # +1 for the padding index, though i don't think it's necessary.
-    train_model(model, 0)
+    load_model(model)
+    model.eval()
+    test_nbatches = test_nids.shape[0] // bs
+    with torch.no_grad():
+        test_acc = eval_accuracy_mb(cora_data_gen(test_dataloader, test_nbatches, 1, features, labels, gpu), model)
+    print(f"{test_acc:.3f}")
+
+def main_global(args):
+    if args.evaluate_model:
+        evaluate_model(0)
+    else:
+        input_dim, output_num_classes = get_input_output_dims() 
+        model = make_model(input_dim, output_num_classes + 1, N=2).to(0) # +1 for the padding index, though i don't think it's necessary.
+        train_model(model, 0)
+
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
 
@@ -183,5 +230,6 @@ if __name__ == "__main__":
     # parser.add_argument("bs", type=int)
     # parser.add_argument("num_sg", type=int)
     parser.add_argument("num_gpus", type=int)
+    parser.add_argument("--evaluate_model", action='store_true')
 
     main_global(parser.parse_args())

@@ -67,7 +67,7 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
     all_minibatch_feats = all_features[subgraph_nodes, :]
 
     all_minibatch_feats = all_minibatch_feats.unsqueeze(0)
-    minibatch_adjacencies = minibatch_adjacencies.unsqueeze(0) == 1
+    minibatch_adjacencies = minibatch_adjacencies.unsqueeze(0) == 1 
     minibatch_labels = all_labels[target_nodes].unsqueeze(0)
     output_node_inds = output_node_inds.unsqueeze(0)
 
@@ -77,11 +77,11 @@ def construct_batch(target_nodes, subgraph_nodes, mfgs, all_features, all_labels
 def pad_graph_bundle(graph_bundle: TransformerGraphBundleInput, device: str) -> None: # WARNING: mutates graph bundle object
     src_mask = graph_bundle.src_mask.squeeze(0) 
     size_subgraph = src_mask.shape[1]
-    padded_src_mask = torch.zeros((src_mask.shape[0], 1156, 1156), device=device)
+    padded_src_mask = torch.zeros((src_mask.shape[0], 529, 529), device=device)
     padded_src_mask[:, : size_subgraph, : size_subgraph] = src_mask
 
     src_feats = graph_bundle.src_feats.squeeze(0)
-    padded_src_feats = torch.zeros((1156, src_feats.shape[-1]), device=device)
+    padded_src_feats = torch.zeros((529, src_feats.shape[-1]), device=device)
     padded_src_feats[: size_subgraph, :src_feats.shape[-1]] = src_feats
     graph_bundle.src_feats = padded_src_feats.unsqueeze(0)
     graph_bundle.src_mask = padded_src_mask.unsqueeze(0)
@@ -131,7 +131,6 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
             input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
             pad_graph_bundle(input_graph_bundle, device) # mutation
             yield input_graph_bundle
-
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
     adj_mat_layerwise = adj.expand(2,-1,-1) 
