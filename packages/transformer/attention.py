@@ -9,6 +9,7 @@ import pdb
 
 from packages.efficient_attention.attention_torch import efficient_dot_product_attention
 
+
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
@@ -61,8 +62,13 @@ class MultiHeadedAttention(nn.Module):
         
         # 2) Apply attention on all the projected vectors in batch. 
         expanded_mask = mask.expand(mask.shape[0], self.h, -1,-1) == 1 
+        query = query.squeeze(0)
+        key = key.squeeze(0)
+        value = value.squeeze(0)
+        expanded_mask = expanded_mask.squeeze(0)
         x = efficient_dot_product_attention(query, key, value, query_chunk_size = key_chunk_size, key_chunk_size=key_chunk_size, mask=expanded_mask)
         assert query.shape == x.shape, f"Query shape is {query.shape} but result shape is {x.shape}"
+        x = x.unsqueeze(0)
         
         # 3) "Concat" using a view and apply a final linear. 
         x = x.contiguous() \
