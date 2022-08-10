@@ -1,5 +1,6 @@
 import pdb
 import torch
+import torch.jit as jit
 from torch.utils.checkpoint import checkpoint
 from .utils import dynamic_slice, map_pt, scan
 import math
@@ -15,23 +16,15 @@ def _query_chunk_attention(query_idx, query, key, value,
     num_q = query.shape[-3]
     key_chunk_size = min(key_chunk_size, num_kv)
     query = query / math.sqrt(k_features)
+    dummy_tensor = torch.ones(1, dtype=torch.float32, requires_grad=True )
 
-    def summarize_chunk(key_idx, query, key, value, mask, bias):
+    @torch.jit.script
+    def summarize_chunk(key_idx, query, key, value, mask, bias, dummy):
         attn_weights = torch.einsum('...qhd,...khd->...qhk', query, key)
-        if bias_calc_fn is not None:
-            bias = bias_calc_fn(query_idx, key_idx, bias, attn_weights, calc_fn_data)
-        if bias is not None:
-            bias = torch.einsum('...hqk->...qhk', bias)
-            attn_weights = attn_weights + bias
-        if mask_calc_fn is not None:
-            mask = mask_calc_fn(query_idx, key_idx, mask, attn_weights, calc_fn_data)
-        if mask is not None:
-            big_neg = torch.finfo(attn_weights.dtype).min
-            big_neg = torch.tensor(big_neg, device=mask.device, dtype=torch.float32)
-            mask = torch.einsum('...hqk->...qhk', mask)
-            attn_weights = torch.where(mask, attn_weights, big_neg)
-        if weights_calc_fn is not None:
-            attn_weights = weights_calc_fn(query_idx, key_idx, attn_weights, calc_fn_data)
+        big_neg = -1e9 
+        big_neg = torch.tensor(big_neg, device=mask.device, dtype=torch.float32)
+        mask = torch.einsum('...hqk->...qhk', mask)
+        attn_weights = torch.where(mask, attn_weights, big_neg)
         max_score, _ = torch.max(attn_weights, -1, keepdim=True)
         max_score = max_score.detach()
         exp_weights = torch.exp(attn_weights - max_score)
@@ -65,7 +58,7 @@ def _query_chunk_attention(query_idx, query, key, value,
         else:
             raise TypeError(f'bias.shape[-1] == {bias.shape[-1]} must broadcast with key.shape[-3] == {num_kv}')
 
-        return checkpoint(summarize_chunk, chunk_idx, query, key_chunk, value_chunk, mask_chunk, bias_chunk)
+        return checkpoint(summarize_chunk, chunk_idx, query, key_chunk, value_chunk, mask_chunk, bias_chunk, dummy_tensor)
 
     chunk_values, chunk_weights, chunk_max = map_pt(
         chunk_scanner, xs=torch.arange(0, num_kv, key_chunk_size))
@@ -78,7 +71,6 @@ def _query_chunk_attention(query_idx, query, key, value,
     all_values = chunk_values.sum(dim=0)
     all_weights = torch.unsqueeze(chunk_weights, -1).sum(dim=0)
     return all_values / all_weights
-
 
 def efficient_dot_product_attention(query, key, value,
                                     mask=None, bias=None,
