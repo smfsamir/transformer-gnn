@@ -5,12 +5,10 @@ from torch.utils.checkpoint import checkpoint
 from .utils import dynamic_slice, map_pt, scan
 import math
 
+@torch.jit.script
 def _query_chunk_attention(query_idx, query, key, value,
-                           mask, bias, key_chunk_size=4096,
-                           mask_calc_fn=None,
-                           bias_calc_fn=None,
-                           weights_calc_fn=None,
-                           calc_fn_data=None):
+                           mask, key_chunk_size=4096,
+                           ):
     num_kv, num_heads, k_features = key.shape[-3:]
     v_features = value.shape[-1]
     num_q = query.shape[-3]
@@ -18,7 +16,6 @@ def _query_chunk_attention(query_idx, query, key, value,
     query = query / math.sqrt(k_features)
     dummy_tensor = torch.ones(1, dtype=torch.float32, requires_grad=True )
 
-    @torch.jit.script
     def summarize_chunk(key_idx, query, key, value, mask, bias, dummy):
         attn_weights = torch.einsum('...qhd,...khd->...qhk', query, key)
         big_neg = -1e9 
@@ -37,26 +34,8 @@ def _query_chunk_attention(query_idx, query, key, value,
                                   tuple(key.shape[:-3]) + (key_chunk_size, num_heads, k_features))
         value_chunk = dynamic_slice(value, tuple([0] * (value.ndim - 3)) + (chunk_idx, 0, 0),
                                     tuple(value.shape[:-3]) + (key_chunk_size, num_heads, v_features))
-
-        if bias is None:
-            bias_chunk = None
-        elif bias.shape[-1] == 1:
-            bias_chunk = bias
-        elif bias.shape[-1] == num_kv:
-            bias_chunk = dynamic_slice(bias, tuple([0] * (bias.ndim - 3)) + (0, 0, chunk_idx),
-                                       tuple(bias.shape[:-3]) + (bias.shape[-3], bias.shape[-2], key_chunk_size))
-        else:
-            raise TypeError(f'bias.shape[-1] == {bias.shape[-1]} must broadcast with key.shape[-3] == {num_kv}')
-
-        if mask is None:
-            mask_chunk = None
-        elif mask.shape[-1] == 1:
-            mask_chunk = mask
-        elif mask.shape[-1] == num_kv:
-            mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, 0, chunk_idx),
-                                       tuple(mask.shape[:-3]) + (mask.shape[-3], mask.shape[-2], key_chunk_size))
-        else:
-            raise TypeError(f'bias.shape[-1] == {bias.shape[-1]} must broadcast with key.shape[-3] == {num_kv}')
+        mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, 0, chunk_idx),
+                                    tuple(mask.shape[:-3]) + (mask.shape[-3], mask.shape[-2], key_chunk_size))
 
         return checkpoint(summarize_chunk, chunk_idx, query, key_chunk, value_chunk, mask_chunk, bias_chunk, dummy_tensor)
 
@@ -72,14 +51,12 @@ def _query_chunk_attention(query_idx, query, key, value,
     all_weights = torch.unsqueeze(chunk_weights, -1).sum(dim=0)
     return all_values / all_weights
 
+@torch.jit.script
 def efficient_dot_product_attention(query, key, value,
-                                    mask=None, bias=None,
+                                    mask=None,
                                     query_chunk_size=1024,
                                     key_chunk_size=4096,
-                                    bias_calc_fn=None,
-                                    mask_calc_fn=None,
-                                    weights_calc_fn=None,
-                                    calc_fn_data=None):
+                                    ):
     """Computes efficient dot-product attention given query, key, and value.
       This is efficient version of attention presented in
       https://arxiv.org/abs/2112.05682v2 which comes with O(sqrt(n)) memory requirements.
@@ -125,35 +102,17 @@ def efficient_dot_product_attention(query, key, value,
     num_kv = key.shape[-3]
 
     actual_chunk_size = min(query_chunk_size, num_q)
+
     def chunk_scanner(chunk_idx, _):
         query_chunk = dynamic_slice(query, tuple([0] * (query.ndim - 3)) + (chunk_idx, 0, 0),
                                     tuple(query.shape[:-3]) + (actual_chunk_size, num_heads, q_features))
 
-        if mask is None:
-            mask_chunk = None
-        elif mask.shape[-2] == 1:
-            mask_chunk = mask
-        elif mask.shape[-2] == num_q:
-            mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, chunk_idx, 0),
-                                       tuple(mask.shape[:-3]) + (mask.shape[-3], actual_chunk_size, mask.shape[-1]))
+        mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, chunk_idx, 0),
+                                    tuple(mask.shape[:-3]) + (mask.shape[-3], actual_chunk_size, mask.shape[-1]))
 
-            assert mask_chunk.shape[-2] == (actual_chunk_size) # gets the query chunk. The key scanner will get the other chunk.
-        else:
-            raise TypeError(f'mask.shape[-2] == {mask.shape[-2]} must broadcast with query.shape[-3] == {num_q}')
-
-        if bias is None:
-            bias_chunk = None
-        elif bias.shape[-2] == 1:
-            bias_chunk = bias
-        elif bias.shape[-2] == num_q:
-            bias_chunk = dynamic_slice(bias, tuple([0] * (bias.ndim - 3)) + (0, chunk_idx, 0),
-                                       tuple(bias.shape[:-3]) + (bias.shape[-3], actual_chunk_size, bias.shape[-1]))
-        else:
-            raise TypeError(f'bias.shape[-2] == {bias.shape[-2]} must broadcast with query.shape[-3] == {num_q}')
         return (chunk_idx + query_chunk_size,
-                _query_chunk_attention(chunk_idx, query_chunk, key, value, mask_chunk, bias_chunk, key_chunk_size=key_chunk_size,
-                                       bias_calc_fn=bias_calc_fn, mask_calc_fn=mask_calc_fn,
-                                       weights_calc_fn=weights_calc_fn, calc_fn_data=calc_fn_data))
+                _query_chunk_attention(chunk_idx, query_chunk, key, value, mask_chunk, key_chunk_size=key_chunk_size,
+                                       ))
 
     _, res = scan(chunk_scanner, init=0, xs=None, length=math.ceil(num_q / actual_chunk_size)) # TODO: this could be the line that has me fucked up. 
     rl = [res[i] for i in range(res.shape[0])]
