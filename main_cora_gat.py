@@ -191,13 +191,11 @@ def build_dataloader(graph: dgl.DGLHeteroGraph, bs: int, fanouts: List[int], ids
     return dataloader
 
 
-def evaluate_model(gpu):
+def evaluate_model(model, gpu ):
     data = citegrh.load_cora()
     bs = 32
     features = data.features.clone().detach().to(gpu)
     labels = torch.tensor(data.labels, device=(gpu)) 
-    train_mask = torch.BoolTensor(data.train_mask)
-    val_mask = torch.BoolTensor(data.val_mask)
     test_mask = torch.BoolTensor(data.test_mask)
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
@@ -206,7 +204,6 @@ def evaluate_model(gpu):
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(gpu)
     test_dataloader = build_dataloader(graph, 32, [5,5], test_nids)
     input_dim, output_num_classes = get_input_output_dims() 
-    model = make_model(input_dim, output_num_classes + 1, N=2, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
     load_model(model)
     model.eval()
     test_nbatches = test_nids.shape[0] // bs
@@ -219,9 +216,9 @@ def main_global(args):
         evaluate_model(0)
     else:
         input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes + 1, N=2, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
+        model = make_model(input_dim, output_num_classes + 1, N=2, d_model=args.d_model, d_ff=args.d_ff).to(0) # +1 for the padding index, though i don't think it's necessary.
         train_model(model, 0)
-        evaluate_model(0)
+        evaluate_model(model, 0)
 
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
@@ -231,5 +228,8 @@ if __name__ == "__main__":
     # parser.add_argument("bs", type=int)
     # parser.add_argument("num_sg", type=int)
     parser.add_argument("--evaluate_model", action='store_true')
+    parser.add_argument("d_model", type=int)
+    parser.add_argument("d_ff", type=int)
+
 
     main_global(parser.parse_args())
