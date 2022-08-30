@@ -30,7 +30,7 @@ class NoamOpt:
         
 def get_std_opt(model):
     return NoamOpt(model.src_embed[0].d_model, 2, 4000,
-            torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.999), eps=1e-8))
+            torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 class LabelSmoothing(nn.Module):
     def __init__(self, size: int, padding_idx: int, smoothing=0.0):

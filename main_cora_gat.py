@@ -89,7 +89,7 @@ def get_input_output_dims():
     data = citegrh.load_cora()
     return data.features.shape[1], len(torch.tensor(data.labels).unique())
 
-def train_model(model, gpu):
+def train_model(model, gpu, batch_size, fanout_inner, fanout_outer):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
@@ -108,7 +108,7 @@ def train_model(model, gpu):
     graph = dgl.graph((adj.row, adj.col)).to(gpu)
     device = gpu
 
-    criterion = LabelSmoothing(size=8, padding_idx=7, smoothing=0.0).to(device)
+    criterion = LabelSmoothing(size=7, smoothing=0.0).to(device)
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
@@ -117,8 +117,7 @@ def train_model(model, gpu):
     val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to(device)
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
-    sampler = dgl.dataloading.MultiLayerNeighborSampler([5, 5])
-    batch_size = 32
+    sampler = dgl.dataloading.MultiLayerNeighborSampler([fanout_inner, fanout_outer])
     train_dataloader = dgl.dataloading.DataLoader(
         graph, train_nids, sampler,
         batch_size=batch_size,
@@ -186,29 +185,31 @@ def build_dataloader(graph: dgl.DGLHeteroGraph, bs: int, fanouts: List[int], ids
         graph, ids, sampler,
         batch_size=bs,
         shuffle=True,
-        drop_last=True
+        drop_last=False
     )
     return dataloader
 
 
-def evaluate_model(model, gpu ):
+def evaluate_model(model, gpu, batch_size, fanout_inner, fanout_outer):
     data = citegrh.load_cora()
-    bs = 32
+    bs = batch_size
     features = data.features.clone().detach().to(gpu)
     labels = torch.tensor(data.labels, device=(gpu)) 
     test_mask = torch.BoolTensor(data.test_mask)
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
+    adj_tens = torch.tensor(adj.todense(), device=gpu) 
     graph = dgl.graph((adj.row, adj.col)).to(gpu)
 
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(gpu)
-    test_dataloader = build_dataloader(graph, 32, [5,5], test_nids)
+    test_dataloader = build_dataloader(graph, 32, [fanout_inner, fanout_outer], test_nids)
     input_dim, output_num_classes = get_input_output_dims() 
     load_model(model)
     model.eval()
     test_nbatches = test_nids.shape[0] // bs
     with torch.no_grad():
-        test_acc = eval_accuracy_mb(cora_data_gen(test_dataloader, test_nbatches, 1, features, labels, gpu), model)
+        # test_acc = eval_accuracy_mb(cora_data_gen(test_dataloader, test_nbatches, 1, features, labels, gpu), model)
+        test_acc = eval_accuracy(test_cora_data_gen(adj_tens, features, test_nids, labels, gpu), model)
     print(f"{test_acc:.3f}")
 
 def main_global(args):
@@ -216,9 +217,9 @@ def main_global(args):
         evaluate_model(0)
     else:
         input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes + 1, N=2, d_model=args.d_model, d_ff=args.d_ff).to(0) # +1 for the padding index, though i don't think it's necessary.
-        train_model(model, 0)
-        evaluate_model(model, 0)
+        model = make_model(input_dim, output_num_classes, N=2, d_model=args.d_model, d_ff=args.d_ff).to(0) # +1 for the padding index, though i don't think it's necessary.
+        train_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
+        evaluate_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
 
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
@@ -230,6 +231,10 @@ if __name__ == "__main__":
     parser.add_argument("--evaluate_model", action='store_true')
     parser.add_argument("d_model", type=int)
     parser.add_argument("d_ff", type=int)
+    parser.add_argument("batch_size", type=int)
+    parser.add_argument("fanout_inner", type=int)
+    parser.add_argument("fanout_outer", type=int)
+
 
 
     main_global(parser.parse_args())
