@@ -206,7 +206,7 @@ def evaluate_model(gpu):
     test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(gpu)
     test_dataloader = build_dataloader(graph, 32, [5,5], test_nids)
     input_dim, output_num_classes = get_input_output_dims() 
-    model = make_model(input_dim, output_num_classes + 1, N=2).to(0) # +1 for the padding index, though i don't think it's necessary.
+    model = make_model(input_dim, output_num_classes + 1, N=2, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
     load_model(model)
     model.eval()
     test_nbatches = test_nids.shape[0] // bs
@@ -219,8 +219,9 @@ def main_global(args):
         evaluate_model(0)
     else:
         input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes + 1, N=8, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
+        model = make_model(input_dim, output_num_classes + 1, N=2, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
         train_model(model, 0)
+        evaluate_model(0)
 
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
@@ -229,7 +230,6 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     # parser.add_argument("bs", type=int)
     # parser.add_argument("num_sg", type=int)
-    parser.add_argument("num_gpus", type=int)
     parser.add_argument("--evaluate_model", action='store_true')
 
     main_global(parser.parse_args())

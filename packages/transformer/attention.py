@@ -7,9 +7,6 @@ import math
 import copy
 import pdb
 
-from packages.efficient_attention.attention_torch import efficient_dot_product_attention
-
-
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])

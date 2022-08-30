@@ -129,7 +129,6 @@ def cora_data_gen(dataloader: dgl.dataloading.DataLoader,
         else: 
             input_nodes, output_nodes, mfgs = next(dataloader_iter) # input nodes gives us the requisite features. The mfgs gives us the requisite attention mask
             input_graph_bundle = construct_batch(output_nodes, input_nodes, mfgs, features, labels, device)
-            pad_graph_bundle(input_graph_bundle, device) # mutation
             yield input_graph_bundle
 
 def test_cora_data_gen(adj: torch.Tensor, features: torch.Tensor, test_nids: torch.Tensor, labels: torch.Tensor, device: str):
