@@ -33,7 +33,7 @@ def get_std_opt(model):
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 class LabelSmoothing(nn.Module):
-    def __init__(self, size: int, padding_idx: int, smoothing=0.0):
+    def __init__(self, size: int, smoothing=0.0):
         """Initialize Label Smoothing criterion
 
         Args:
@@ -44,7 +44,6 @@ class LabelSmoothing(nn.Module):
         super(LabelSmoothing, self).__init__()
         # self.criterion = nn.KLDivLoss(reduction='batchmean') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
         self.criterion = nn.KLDivLoss(reduction='sum') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
-        self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
         self.size = size
@@ -55,10 +54,6 @@ class LabelSmoothing(nn.Module):
         true_dist = x.data.clone()
         true_dist.fill_(self.smoothing / (self.size - 2))
         true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
-        true_dist[:, self.padding_idx] = 0
-        mask = torch.nonzero(target.data == self.padding_idx)
-        if mask.dim() > 0:
-            true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
         # print(f"input shape in criterion: {x.shape}")
         # print(f"target shape in criterion: {self.true_dist.shape}")
