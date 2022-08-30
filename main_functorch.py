@@ -31,25 +31,36 @@ def summarize_chunk(query, chunk, dummy):
 def scan_chunk(query, single_chunk):
     return checkpoint(summarize_chunk, query, single_chunk, dummy_tensor, use_reentrant=False)
 
-def scan_queries( query):
+def scan_queries(all_col_inds, slice_left_ind, slice_right_ind, query):
+    # slice_range = torch.arange(slice_left_ind, slice_right_ind)
+    # nonzero_cols = torch.index_select(all_col_inds,0,slice_range) # assuming this works, we have to pass it into the partial.
+    nonzero_cols = torch.narrow(all_col_inds, slice_left_ind, slice_right_ind)
+    print(nonzero_cols)
     res = vmap(partial(scan_chunk, query), in_dims=0)(chunked_keys)
     return res
-# complete_res = vmap(scan_queries, in_dims=0)(all_queries, )
 
+# TODO: change this, so each 
 def generate_sparse_mask(): # get the indptr and the indices. 289 entries
     mask = rand(s, s, 0.1, format='csr', random_state=0)
     indptr = torch.tensor(mask.indptr)
     col_inds = torch.tensor(mask.indices)
     return indptr, col_inds
 
-rand_arr = torch.ones(3)
-def index_arr(ind):
-    print(ind)
-    return torch.index_select(rand_arr, 0, ind)
-
-tens_range = torch.arange(0,3).view(3,1)
-res = vmap(index_arr)(tens_range)
-
 sparse_mask_indptr, sparse_mask_inds = generate_sparse_mask()
+slice_indptr_left = sparse_mask_indptr[0:s]
+slice_indptr_right = sparse_mask_indptr[1:s+1]
+pdb.set_trace()
+
+complete_res = vmap(partial(scan_queries, sparse_mask_inds), in_dims=0)(all_queries, slice_indptr_left, slice_indptr_right )
+
+
+# rand_arr = torch.ones(3)
+# def index_arr(ind):
+#     print(ind)
+#     return torch.index_select(rand_arr, 0, ind)
+
+# tens_range = torch.arange(0,3).view(3,1)
+# res = vmap(index_arr)(tens_range)
+
 
 

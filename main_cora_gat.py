@@ -219,7 +219,7 @@ def main_global(args):
         evaluate_model(0)
     else:
         input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes + 1, N=2).to(0) # +1 for the padding index, though i don't think it's necessary.
+        model = make_model(input_dim, output_num_classes + 1, N=8, d_model=8, d_ff=8).to(0) # +1 for the padding index, though i don't think it's necessary.
         train_model(model, 0)
 
     # world_size = args.num_gpus

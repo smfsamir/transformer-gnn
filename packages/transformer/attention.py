@@ -41,7 +41,7 @@ class MultiHeadedAttention(nn.Module):
             _type_: _description_
         """
         "Implements Figure 2"
-        # assert len(query.shape) == 3
+                # assert len(query.shape) == 3
         # assert len(key.shape) == 3
         # assert len(value.shape) == 3
 
@@ -51,30 +51,22 @@ class MultiHeadedAttention(nn.Module):
 
         # if mask is not None: 
         #     mask = mask.unsqueeze(1) # NOTE: we shouldn't need to do this anymore, since our mask will become a 3D tensor :)
-        key_chunk_size = round(np.sqrt(query.shape[-2]))
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 
-
         query, key, value = \
-            [l(x).view(nbatches, -1, self.h, self.d_k)
-             for l, x in zip(self.linears, (query, key, value))] # B x H x S x D. (representations for all heads)
+            [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+             for l, x in zip(self.linears, (query, key, value))]
         
         # 2) Apply attention on all the projected vectors in batch. 
-        expanded_mask = mask.expand(mask.shape[0], self.h, -1,-1) == 1 
-        query = query.squeeze(0)
-        key = key.squeeze(0)
-        value = value.squeeze(0)
-        expanded_mask = expanded_mask.squeeze(0)
-        x = efficient_dot_product_attention(query, key, value, query_chunk_size = key_chunk_size, key_chunk_size=key_chunk_size, mask=expanded_mask)
-        assert query.shape == x.shape, f"Query shape is {query.shape} but result shape is {x.shape}"
-        x = x.unsqueeze(0)
+        x, self.attn = attention(query, key, value, mask=mask, 
+                                 dropout=self.dropout)
         
         # 3) "Concat" using a view and apply a final linear. 
-        x = x.contiguous() \
+        x = x.transpose(1, 2).contiguous() \
              .view(nbatches, -1, self.h * self.d_k)
-        res = self.linears[-1](x)
-        return res
+        return self.linears[-1](x)
+
 
 def attention(query, key, value, mask=None, dropout=None):
     """TODO: what are the shapes of these?
