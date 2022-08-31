@@ -217,7 +217,7 @@ def main_global(args):
         evaluate_model(0)
     else:
         input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes, N=2, d_model=args.d_model, d_ff=args.d_ff).to(0) # +1 for the padding index, though i don't think it's necessary.
+        model = make_model(input_dim, output_num_classes, N=2, d_model=args.d_model, d_ff=args.d_ff, dropout=0.6).to(0) # +1 for the padding index, though i don't think it's necessary.
         train_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
         evaluate_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
 
