@@ -110,7 +110,7 @@ def train_model(model, gpu, batch_size, fanout_inner, fanout_outer):
 
     criterion = LabelSmoothing(size=7, smoothing=0.1).to(device)
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
-        torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
+        torch.optim.AdamW(model.parameters(), lr=0, betas=(0.9, 0.999), eps=1e-8))
     nepochs = 100
     best_loss = float("inf") 
     train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to(device)

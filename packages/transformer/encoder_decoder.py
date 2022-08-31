@@ -139,7 +139,7 @@ def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6,
     
     for p in model.parameters():
         if p.dim() > 1:
-            nn.init.xavier_uniform(p)
+            nn.init.xavier_normal(p)
     return model
 
 class Generator(nn.Module):
