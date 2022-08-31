@@ -108,7 +108,7 @@ def train_model(model, gpu, batch_size, fanout_inner, fanout_outer):
     graph = dgl.graph((adj.row, adj.col)).to(gpu)
     device = gpu
 
-    criterion = LabelSmoothing(size=7, smoothing=0.0).to(device)
+    criterion = LabelSmoothing(size=7, smoothing=0.1).to(device)
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6))
     nepochs = 100
