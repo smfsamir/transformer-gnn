@@ -43,7 +43,7 @@ class LabelSmoothing(nn.Module):
         """
         super(LabelSmoothing, self).__init__()
         # self.criterion = nn.KLDivLoss(reduction='batchmean') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
-        self.criterion = nn.KLDivLoss(reduction='sum') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
+        self.criterion = nn.CrossEntropyLoss(reduction='sum') # TODO: https://discuss.pytorch.org/t/kldiv-loss-reduction/109131/5. "In most cases, batchmean will suffice". If anything goes wrong, confirm this.
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
         self.size = size
