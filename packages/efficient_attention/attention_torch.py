@@ -6,6 +6,19 @@ from .utils import dynamic_slice, map_pt, scan
 import math
 
 @torch.jit.script
+def summarize_chunk(key_idx, query, key, value, mask,  dummy):
+    attn_weights = torch.einsum('...qhd,...khd->...qhk', query, key)
+    big_neg = -1e9 
+    big_neg = torch.tensor(big_neg, device=mask.device, dtype=torch.float32)
+    mask = torch.einsum('...hqk->...qhk', mask)
+    attn_weights = torch.where(mask, attn_weights, big_neg)
+    max_score, _ = torch.max(attn_weights, -1, keepdim=True)
+    max_score = max_score.detach()
+    exp_weights = torch.exp(attn_weights - max_score)
+    exp_values = torch.einsum('...vhf,...qhv->...qhf', value, exp_weights)
+    max_score = torch.einsum('...qhk->...qh', max_score)
+    return exp_values, exp_weights.sum(dim=-1), max_score
+
 def _query_chunk_attention(query_idx, query, key, value,
                            mask, key_chunk_size=4096,
                            ):
@@ -16,18 +29,6 @@ def _query_chunk_attention(query_idx, query, key, value,
     query = query / math.sqrt(k_features)
     dummy_tensor = torch.ones(1, dtype=torch.float32, requires_grad=True )
 
-    def summarize_chunk(key_idx, query, key, value, mask, bias, dummy):
-        attn_weights = torch.einsum('...qhd,...khd->...qhk', query, key)
-        big_neg = -1e9 
-        big_neg = torch.tensor(big_neg, device=mask.device, dtype=torch.float32)
-        mask = torch.einsum('...hqk->...qhk', mask)
-        attn_weights = torch.where(mask, attn_weights, big_neg)
-        max_score, _ = torch.max(attn_weights, -1, keepdim=True)
-        max_score = max_score.detach()
-        exp_weights = torch.exp(attn_weights - max_score)
-        exp_values = torch.einsum('...vhf,...qhv->...qhf', value, exp_weights)
-        max_score = torch.einsum('...qhk->...qh', max_score)
-        return exp_values, exp_weights.sum(dim=-1), max_score
 
     def chunk_scanner(chunk_idx):
         key_chunk = dynamic_slice(key, tuple([0] * (key.ndim - 3)) + (chunk_idx, 0, 0),
@@ -37,7 +38,7 @@ def _query_chunk_attention(query_idx, query, key, value,
         mask_chunk = dynamic_slice(mask, tuple([0] * (mask.ndim - 3)) + (0, 0, chunk_idx),
                                     tuple(mask.shape[:-3]) + (mask.shape[-3], mask.shape[-2], key_chunk_size))
 
-        return checkpoint(summarize_chunk, chunk_idx, query, key_chunk, value_chunk, mask_chunk, bias_chunk, dummy_tensor)
+        return checkpoint(summarize_chunk, chunk_idx, query, key_chunk, value_chunk, mask_chunk, dummy_tensor)
 
     chunk_values, chunk_weights, chunk_max = map_pt(
         chunk_scanner, xs=torch.arange(0, num_kv, key_chunk_size))
@@ -51,7 +52,6 @@ def _query_chunk_attention(query_idx, query, key, value,
     all_weights = torch.unsqueeze(chunk_weights, -1).sum(dim=0)
     return all_values / all_weights
 
-@torch.jit.script
 def efficient_dot_product_attention(query, key, value,
                                     mask=None,
                                     query_chunk_size=1024,

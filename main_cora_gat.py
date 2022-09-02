@@ -1,4 +1,8 @@
+import gc
+import pdb
+from hyperopt import hp, fmin, tpe, space_eval
 from argparse import ArgumentParser
+from functools import partial
 from typing import Optional, List
 import time
 import torch.multiprocessing as mp
@@ -89,33 +93,60 @@ def get_input_output_dims():
     data = citegrh.load_cora()
     return data.features.shape[1], len(torch.tensor(data.labels).unique())
 
-def train_model(model, gpu, batch_size, fanout_inner, fanout_outer):
+def instantiate_model(input_dim, output_num_classes, hparams_d):
+    """Instantiate T-GNN. 
+
+    Args:
+        hparams_d (): hyperparameters from search.
+    """
+
+# def train_model(input_dim, output_dim, features, train_nids, val_nids, graph, labels, gpu, hparams_d):
+def train_model(hparams_d):
     """Train the GraphTransformer model for 32 epochs.
 
     Args:
         bs (int): batch size
         num_sg (int): number of subgraphs. If 1, then no padding is done.
     """
-
+    gpu = 0
+    input_dim, output_num_classes = 1433, 7
     data = citegrh.load_cora()
-    features = data.features.clone().detach().to(gpu)
-    labels = torch.tensor(data.labels, device=(gpu)) 
     train_mask = torch.BoolTensor(data.train_mask)
     val_mask = torch.BoolTensor(data.val_mask)
     test_mask = torch.BoolTensor(data.test_mask)
     graph = data[0]
     adj = graph.adj(scipy_fmt='coo')
-    graph = dgl.graph((adj.row, adj.col)).to(gpu)
+
+    features = data.features.clone().detach().to(0)
+    labels = torch.tensor(data.labels, device=(0)) 
+    graph = dgl.graph((adj.row, adj.col)).to(0)
+    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to(0)
+    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to(0)
+    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(0)
+
+    num_heads = 2 ** int(hparams_d['num_heads']) # TODO: quniform
+    head_dim  = 2 ** int(hparams_d['head_dim']) # TODO: quniform
+    d_model = num_heads * head_dim 
+    d_ff = 2 ** int(hparams_d['d_ff']) # TODO: quniform
+    dropout = hparams_d['dropout'] # TODO: log normal
+
+    model = make_model(input_dim, output_num_classes, N=2, d_model=d_model, d_ff=d_ff, h=num_heads, dropout=dropout).to(gpu)
+
+    print(f"Training with : {hparams_d}")
     device = gpu
 
-    criterion = LabelSmoothing(size=7, smoothing=0.1).to(device)
-    model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400,
-        torch.optim.AdamW(model.parameters(), lr=0, betas=(0.9, 0.999), eps=1e-8))
-    nepochs = 100
+    # model = make_model(input_dim, output_num_classes, N=2, d_model=args.d_model, d_ff=args.d_ff, dropout=0.6).to(0) # +1 for the padding index, though i don't think it's necessary.
+    
+
+    fanout_inner = int(hparams_d['fanout_0']) # quniform
+    fanout_outer = fanout_inner * hparams_d['fanout_1_scale_factor'] # choice: 1,2,3
+
+    batch_size = hparams_d['batch_size'] # choice
+    criterion = LabelSmoothing(size=7, smoothing=hparams_d['label_smoothing']).to(device) # loguniform
+    model_opt = NoamOpt(model.src_embed[0].d_model, 1, hparams_d['warmup'], # quniform... dont have much expectations over this.
+        torch.optim.AdamW(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-6, weight_decay=hparams_d['weight_decay'])) # qloguniform?
+    nepochs = 10
     best_loss = float("inf") 
-    train_nids = (torch.arange(0, graph.number_of_nodes())[train_mask]).to(device)
-    val_nids = (torch.arange(0, graph.number_of_nodes())[val_mask]).to(device)
-    test_nids = (torch.arange(0, graph.number_of_nodes())[test_mask]).to(device)
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([fanout_inner, fanout_outer])
     train_dataloader = dgl.dataloading.DataLoader(
@@ -152,18 +183,24 @@ def train_model(model, gpu, batch_size, fanout_inner, fanout_outer):
                 SimpleLossCompute(model.generator, criterion, None))
             tb_sw.add_scalar('Loss/validation', validation_loss, nepoch)
             if validation_loss < best_loss:
-                checkpoint_model(model)
                 best_loss = validation_loss
                 best_loss_epoch = nepoch
-            
-    # print(f"Best validation epoch: {best_loss_epoch}")
-    # load_model(model) # mutation
-    # model.eval()
-    # with torch.no_grad():
-    #     test_labels = labels[test_nids]
-    #     test_acc = eval_accuracy(test_cora_data_gen(graph.adj().to_dense().to(device) + torch.eye(adj.shape[0]).to(device), features, test_nids, test_labels, device), model)
-    #     tb_sw.add_scalar('Accuracy/test', test_acc)
-    # print(f"{test_acc:.3f},{best_loss:.3f},{best_loss_epoch}")
+    best_val_loss =best_loss.item()
+    with torch.no_grad():
+        del model
+        features = None
+        labels = None
+        graph = None
+        train_nids = None 
+        val_nids = None
+        sampler = None
+        train_dataloader = None
+        val_dataloader = None
+        criterion = None
+        torch.cuda.empty_cache()
+        gc.collect()
+    return best_val_loss
+
 
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = 'localhost'
@@ -216,10 +253,31 @@ def main_global(args):
     if args.evaluate_model:
         evaluate_model(0)
     else:
-        input_dim, output_num_classes = get_input_output_dims() 
-        model = make_model(input_dim, output_num_classes, N=2, d_model=args.d_model, d_ff=args.d_ff, dropout=0.6).to(0) # +1 for the padding index, though i don't think it's necessary.
-        train_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
-        evaluate_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
+        # train_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer, 0.052)
+
+        # space = hp.uniform('a', 0, 0.20)
+
+        # TODO: be careful with the log.
+        space = {
+            'num_heads': hp.quniform('num_heads', 1, 5, 1),
+            'head_dim':  hp.quniform('head_dim', 4, 7, 1),
+            'd_ff':  hp.quniform('d_ff', 5, 11, 1),
+            'dropout': hp.loguniform('dropout', np.log(0.1), np.log(0.8)),
+            'fanout_0': hp.quniform('fanout_0', 5, 35, 1),
+            'fanout_1_scale_factor': hp.choice('fanout_1_scale_factor', [1,2,3]),
+            'label_smoothing': hp.loguniform('label_smoothing', np.log(0.01), np.log(0.7)),
+            'warmup': hp.quniform('warmup', 25, 400, 1),
+            'weight_decay': hp.loguniform('weight_decay', np.log(1e-4), np.log(1e-2)),
+            'batch_size': hp.choice('batch_size', [32, 64])
+
+        }
+        # objective = partial(train_model, model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
+        objective = train_model
+        best = fmin(objective, space, algo=tpe.suggest, max_evals=5)
+        print(best)
+
+        # results.get_dataframe().to_csv("results/ray_tune_first_run.csv")
+        # evaluate_model(model, 0, args.batch_size, args.fanout_inner, args.fanout_outer)
 
     # world_size = args.num_gpus
     # mp.spawn(main_proc, args=(world_size, ), nprocs = world_size, join=True)
@@ -229,12 +287,9 @@ if __name__ == "__main__":
     # parser.add_argument("bs", type=int)
     # parser.add_argument("num_sg", type=int)
     parser.add_argument("--evaluate_model", action='store_true')
-    parser.add_argument("d_model", type=int)
-    parser.add_argument("d_ff", type=int)
-    parser.add_argument("batch_size", type=int)
-    parser.add_argument("fanout_inner", type=int)
-    parser.add_argument("fanout_outer", type=int)
-
-
-
+    # parser.add_argument("d_model", type=int)
+    # parser.add_argument("d_ff", type=int)
+    # parser.add_argument("batch_size", type=int)
+    # parser.add_argument("fanout_inner", type=int)
+    # parser.add_argument("fanout_outer", type=int)
     main_global(parser.parse_args())

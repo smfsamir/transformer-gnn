@@ -1,3 +1,4 @@
+import chunk
 import pdb
 import math
 import numpy as np
@@ -74,8 +75,72 @@ def benchmark_standard_attention():
     print(f"Computing standard attention took: {elapsed}")
     results[0].backward(torch.ones_like(query))
 
-# benchmark_jax_attention()
-benchmark_standard_attention()
-benchmark_subquad_attention_pt()
-# benchmark_subquad_attention()
-# benchmark_standard_attention()
+def reimplement_attention():
+    s = 289
+    h = 8
+    f = 64
+    chunksize = int(np.sqrt(s))
+    nc = s // chunksize
+    num_queries = 1
+
+    K_chunked = torch.rand(nc, chunksize, h, f)
+    Q = torch.rand(1, h, f)
+    
+    single_key = torch.rand(h, f)
+    single_q = torch.rand(h, f)
+    single_key_res_bmm = torch.bmm(single_key.view(h, 1, f), single_q.view(h, f, 1))
+    single_key_res_mm_sum = torch.mul(single_key, single_q).sum(axis=1)
+    # assert torch.nn.functional.cosine_similarity(single_key_res_bmm.reshape(h), single_key_res_mm_sum, dim=0) == 1
+
+    # so far, so good
+    single_chunk = torch.rand(chunksize, h, f)
+    single_q = torch.rand(1,h,f)
+    single_chunk_mat_view = single_chunk.view(chunksize * h, f)
+
+    single_q_expanded =single_q.expand(chunksize, -1, -1).reshape(chunksize*h, f)
+    single_chunk_res = torch.bmm(single_chunk_mat_view.view(chunksize*h, 1, f), single_q_expanded.view(chunksize*h, f, 1))
+    single_chunk_mm_res = torch.mul(single_chunk_mat_view, single_q_expanded).sum(axis=1) # works
+    single_chunk_mm_res_2 = torch.mul(single_chunk, single_q).sum(axis=-1) # works
+
+
+    # works.
+    n_q = 2
+    single_chunk = torch.rand(chunksize, h , f)
+    single_chunk_repeated = single_chunk.repeat(1, 1, n_q)
+    single_chunk_mat_view = single_chunk_repeated.view(chunksize * h, f * n_q)
+    # single_q = torch.rand(n_q,h,f).reshape(1, h, n_q * f)
+    chunk_q = torch.rand(n_q,h,f)
+    chunk_q_expanded =chunk_q.view(1, h, n_q * f).expand(chunksize, -1, -1).reshape(chunksize*h, f * n_q)
+    # single_chunk_res = torch.bmm(single_chunk_mat_view.view(chunksize*h, 1, f), single_q_expanded.view(chunksize*h, f, 1))
+
+    pdb.set_trace()
+    chunk_both_mm_res = torch.mul(single_chunk_mat_view, chunk_q_expanded).view(chunksize*h, n_q, f).sum(axis=-1)
+
+
+def tensordot_batched():
+    s = 289
+    h = 8
+    f = 64
+    chunksize = int(np.sqrt(s))
+    nc = s // chunksize
+
+    single_key = torch.rand(h, f)
+    single_q = torch.rand(h, f)
+    single_key_res_td = torch.tensordot(single_key, single_q, dims=2)
+    single_key_res_bmm = torch.bmm(single_key.view(h, 1, f), single_q.view(h, f, 1))
+    pdb.set_trace()
+    assert torch.equal(single_key_res_bmm, single_key_res_td)
+
+    # single_chunk = torch.rand(chunksize, h, f)
+    # single_q = torch.rand(h,f)
+
+    # torch.tensordot(single_chunk, single_q, dims=-1)
+reimplement_attention()
+
+
+# tensordot_batched()
+
+
+    # attn_weights = torch.matmul(single_chunk, )
+
+
