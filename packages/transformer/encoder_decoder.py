@@ -1,3 +1,4 @@
+import pdb
 import math
 from platform import node
 from typing import Optional
@@ -7,6 +8,7 @@ import numpy as np
 import copy
 import torch.nn.functional as F
 from torch.autograd import Variable
+from functools import partial
 
 from .attention import MultiHeadedAttention
 from .utils import batched_index_select
@@ -54,11 +56,11 @@ class Generator(nn.Module):
 
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
-    def __init__(self, layer, N):
+    def __init__(self, layers, fixed_output_dim):
         super(Encoder, self).__init__()
-        self.num_layers = N
-        self.layers = clones(layer, N)
-        self.norm = nn.LayerNorm(layer.size)
+        self.num_layers = len(layers)
+        self.layers = layers
+        self.norm = nn.LayerNorm(fixed_output_dim + 2 * len(layers) * fixed_output_dim)
         
     def forward(self, x, masks):
         "Pass the input (and mask) through each layer in turn."
@@ -66,7 +68,12 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x, masks[:, layer_i, :, :])
             layer_i += 1
-        return self.norm(x)
+        return self.norm(x) # TODO: should we have this final layer norm...?
+    
+# class GraphLayerNorm(nn.Module):
+
+#     def __init__(self, size)
+
 
 class SublayerConnection(nn.Module):
     """
@@ -75,21 +82,22 @@ class SublayerConnection(nn.Module):
     """
     def __init__(self, size, dropout):
         super(SublayerConnection, self).__init__()
-        self.norm = nn.LayerNorm(size)
+        self.norm = nn.LayerNorm(size) # TODO: need to change this.
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+        return torch.cat((x, self.dropout(sublayer(self.norm(x)))), -1)
 
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
-    def __init__(self, size, self_attn, feed_forward, dropout):
+    def __init__(self, fixed_output_size, self_attn, feed_forward, dropout, layer_i):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 2)
-        self.size = size
+        self.sublayer = [(SublayerConnection(fixed_output_size + 2 * layer_i * fixed_output_size, dropout)), 
+                         (SublayerConnection(fixed_output_size + (2 * layer_i + 1) * fixed_output_size, dropout))]
+        # self.size = size
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
@@ -98,10 +106,10 @@ class EncoderLayer(nn.Module):
 
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
-    def __init__(self, d_model, d_ff, dropout=0.1):
+    def __init__(self, d_model, e, dropout, layer_i):
         super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
+        self.w_1 = nn.Linear(d_model + (2 * layer_i + 1) * d_model, e * d_model) # TODO: change to be a function of layer_i
+        self.w_2 = nn.Linear(e * d_model, d_model) # TODO: change to be a function of layer_i
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -126,16 +134,17 @@ class Embeddings(nn.Module):
         return self.lut(x) * math.sqrt(self.d_model)
 
 def make_model(d_input: int, tgt_vocab: int , N: Optional[int] = 6, 
-               d_model: Optional[int]=512, d_ff=2048, h=8, dropout=0.1):
+               d_model: Optional[int]=512, e=4, h=8, dropout=0.1):
     """Helper: Construct a model from hyperparameters."""
     c = copy.deepcopy
-    attn = MultiHeadedAttention(h, d_model)
-    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+    attn_ins = partial(MultiHeadedAttention, h, d_model, dropout)
+    ff_ins = partial(PositionwiseFeedForward, d_model, e, dropout)
 
     model = EncoderDecoder(
-        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+        Encoder([EncoderLayer(d_model, attn_ins(encoder_layer_i), ff_ins(encoder_layer_i), dropout, encoder_layer_i)  
+                    for encoder_layer_i in range(N)], d_model),
         nn.Sequential(NodeEmbedding(d_model, d_input)),
-        Generator(d_model, tgt_vocab))
+        Generator(d_model + 2 * N * d_model, tgt_vocab))
     
     for p in model.parameters():
         if p.dim() > 1:

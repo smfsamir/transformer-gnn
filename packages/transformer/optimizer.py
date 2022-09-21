@@ -29,7 +29,7 @@ class NoamOpt:
             min(step ** (-0.5), step * self.warmup ** (-1.5)))
         
 def get_std_opt(model):
-    return NoamOpt(model.src_embed[0].d_model, 2, 4000,
+    return NoamOpt(model.src_embed[0].d_model, 2, 20,
             torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 class LabelSmoothing(nn.Module):
@@ -52,11 +52,9 @@ class LabelSmoothing(nn.Module):
     def forward(self, x, target):
         assert x.size(1) == self.size
         true_dist = x.data.clone()
-        true_dist.fill_(self.smoothing / (self.size - 2))
-        true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+        # true_dist.fill_(self.smoothing / (self.size - 2))
+        # true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
         self.true_dist = true_dist
-        # print(f"input shape in criterion: {x.shape}")
-        # print(f"target shape in criterion: {self.true_dist.shape}")
         return self.criterion(x, torch.autograd.Variable(true_dist, requires_grad=False))
 
 class SimpleLossCompute:

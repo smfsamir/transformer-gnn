@@ -12,7 +12,7 @@ def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
+    def __init__(self, h, d_model, dropout, layer_i):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -20,7 +20,8 @@ class MultiHeadedAttention(nn.Module):
         self.d_model = d_model
         self.d_k = d_model // h
         self.h = h
-        self.linears = clones(nn.Linear(d_model, d_model), 4)
+        self.qkv_linears = clones(nn.Linear(d_model + 2 * layer_i * d_model, d_model), 3) # TODO: change to be a function of layer_i. The Q,K,V should be different from the final one. 
+        self.final_linear = nn.Linear(d_model, d_model)
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
         
@@ -53,7 +54,7 @@ class MultiHeadedAttention(nn.Module):
         # 1) Do all the linear projections in batch from d_model => h x d_k 
         query, key, value = \
             [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-             for l, x in zip(self.linears, (query, key, value))]
+             for l, x in zip(self.qkv_linears, (query, key, value))]
         
         # 2) Apply attention on all the projected vectors in batch. 
         x, self.attn = attention(query, key, value, mask=mask, 
@@ -62,7 +63,7 @@ class MultiHeadedAttention(nn.Module):
         # 3) "Concat" using a view and apply a final linear. 
         x = x.transpose(1, 2).contiguous() \
              .view(nbatches, -1, self.h * self.d_k)
-        return self.linears[-1](x)
+        return self.final_linear(x)
 
 
 def attention(query, key, value, mask=None, dropout=None):
